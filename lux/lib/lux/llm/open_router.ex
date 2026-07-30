@@ -48,6 +48,7 @@ defmodule Lux.LLM.OpenRouter do
   alias Lux.Lens
   alias Lux.LLM.ResponseSignal
   alias Lux.Prism
+  alias Lux.Signal
 
   require Beam
   require Lens
@@ -73,6 +74,8 @@ defmodule Lux.LLM.OpenRouter do
             frequency_penalty: float(),
             receive_timeout: integer(),
             max_retries: integer(),
+            max_retry_delay: integer(),
+            sleeper: (integer() -> any()) | nil,
             seed: integer() | nil,
             n: integer(),
             json_response: boolean(),
@@ -96,6 +99,8 @@ defmodule Lux.LLM.OpenRouter do
               frequency_penalty: 0.0,
               receive_timeout: 60_000,
               max_retries: 3,
+              max_retry_delay: 60_000,
+              sleeper: nil,
               seed: nil,
               n: 1,
               # Defaults to false because OpenRouter is a multi-model gateway
@@ -168,7 +173,7 @@ defmodule Lux.LLM.OpenRouter do
       ]
       |> Keyword.merge(Application.get_env(:lux, __MODULE__, []))
 
-    case post_with_retry(req_options, config.max_retries) do
+    case post_with_retry(req_options, config.max_retries, config) do
       {:ok, %{status: 200} = response} ->
         handle_response(response, config)
 
@@ -560,13 +565,20 @@ defmodule Lux.LLM.OpenRouter do
   defp maybe_add_provider(body, provider) when is_map(provider), do: Map.put(body, :provider, provider)
   defp maybe_add_provider(body, _), do: body
 
-  defp post_with_retry(req_options, attempts_left) do
+  defp post_with_retry(req_options, attempts_left, config) do
     case Req.new(req_options) |> Req.post() do
       {:ok, %{status: status, headers: headers} = response}
       when status in [429, 503] and attempts_left > 1 ->
         delay = parse_retry_after(headers)
-        Process.sleep(delay)
-        post_with_retry(req_options, attempts_left - 1)
+        max_delay = Map.get(config, :max_retry_delay, 60_000) || 60_000
+
+        if delay > max_delay do
+          response
+        else
+          sleeper = Map.get(config, :sleeper) || (&Process.sleep/1)
+          sleeper.(delay)
+          post_with_retry(req_options, attempts_left - 1, config)
+        end
 
       other ->
         other
@@ -580,7 +592,7 @@ defmodule Lux.LLM.OpenRouter do
 
       val ->
         case Integer.parse(to_string(val)) do
-          {sec, _} -> min(sec * 1000, 2000)
+          {sec, _} -> max(sec * 1000, 0)
           :error -> 500
         end
     end
@@ -702,10 +714,10 @@ defmodule Lux.LLM.OpenRouter do
 
   def cost_summary(signal_or_usage), do: cost_summary([signal_or_usage])
 
-  defp extract_usage_and_model(%ResponseSignal{metadata: %{usage: usage}, payload: %{model: model}}),
+  defp extract_usage_and_model(%Signal{metadata: %{usage: usage}, payload: %{model: model}}),
     do: {usage, model}
 
-  defp extract_usage_and_model(%ResponseSignal{metadata: %{usage: usage}}), do: {usage, "unknown"}
+  defp extract_usage_and_model(%Signal{metadata: %{usage: usage}}), do: {usage, "unknown"}
   defp extract_usage_and_model(%{"cost" => _} = usage), do: {usage, "unknown"}
   defp extract_usage_and_model(_), do: {%{}, "unknown"}
 

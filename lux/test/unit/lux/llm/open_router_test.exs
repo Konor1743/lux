@@ -745,6 +745,61 @@ defmodule Lux.LLM.OpenRouterTest do
       assert metadata.retry_after == "2"
       assert metadata.ratelimit_remaining == "0"
     end
+
+    test "retries on 429 rate limit using injectable sleeper without sleeping" do
+      parent = self()
+
+      config = %OpenRouter.Config{
+        endpoint: "http://localhost/test/openrouter/rate_retry",
+        api_key: "test-key",
+        max_retries: 3,
+        max_retry_delay: 60_000,
+        sleeper: fn ms -> send(parent, {:slept, ms}) end
+      }
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      Req.Test.stub(OpenRouter, fn conn ->
+        attempt = Agent.get_and_update(counter, fn c -> {c + 1, c + 1} end)
+
+        if attempt < 3 do
+          conn
+          |> Plug.Conn.put_resp_header("retry-after", "5")
+          |> Plug.Conn.send_resp(429, ~s({"error": {"code": 429, "message": "Rate limit"}}))
+        else
+          Req.Test.json(conn, %{
+            "model" => "openai/gpt-4o",
+            "choices" => [
+              %{"message" => %{"content" => "Retried successfully"}, "finish_reason" => "stop"}
+            ]
+          })
+        end
+      end)
+
+      assert {:ok, _signal} = OpenRouter.call("test prompt", [], config)
+      assert_received {:slept, 5000}
+      assert_received {:slept, 5000}
+    end
+
+    test "does not retry when Retry-After exceeds max_retry_delay policy" do
+      config = %OpenRouter.Config{
+        endpoint: "http://localhost/test/openrouter/rate_exceed",
+        api_key: "test-key",
+        max_retries: 3,
+        max_retry_delay: 10_000
+      }
+
+      Req.Test.stub(OpenRouter, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", "60")
+        |> Plug.Conn.send_resp(429, ~s({"error": {"code": 429, "message": "Long delay"}}))
+      end)
+
+      assert {:error, {429, "Long delay", metadata}} =
+               OpenRouter.call("test prompt", [], config)
+
+      assert metadata.retry_after == "60"
+    end
   end
 
   describe "usage accounting and cost tracking" do
