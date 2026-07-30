@@ -21,6 +21,25 @@ defmodule Lux.LLM.OpenRouter do
   - **Site attribution headers**: Supports optional `HTTP-Referer` and
     `X-OpenRouter-Title` headers for app identification on OpenRouter leaderboards.
     Configure via `site_url`/`site_name` or `http_referer`/`openrouter_title` keys.
+
+  ## Advanced OpenRouter Features
+
+  - **Model Fallbacks & Provider Routing**: Callers can pass a fallback list of models
+    via `models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"]` or provider routing
+    preferences via `provider: %{order: ["OpenAI", "Anthropic"], allow_fallbacks: true}`.
+    Atoms `:cheapest`, `:default`, and `:smartest` are resolved from `config :lux, :open_router_models`.
+
+  - **Retry & Rate-Limit Handling**: Automatically retries HTTP 429 (Too Many Requests)
+    and 503 (No Available Provider) errors by reading the `Retry-After` response header,
+    up to `max_retries` attempts (default: 3).
+
+  - **HTTP 200 Error Envelope Decoding**: OpenRouter can return provider errors after
+    HTTP 200 OK once generation starts. This module decodes `%{"error" => ...}` envelopes
+    in status 200 responses into structured `{:error, {code, message, metadata}}` tuples.
+
+  - **Usage Accounting & Cost Tracking**: Extracts exact cost in USD from the `usage`
+    object (`cost`, `total_cost`, `cost_details`) and includes it in signal metadata.
+    Provides `cost_summary/1` and `within_budget?/2` helpers for budget monitoring.
   """
 
   @behaviour Lux.LLM
@@ -42,7 +61,9 @@ defmodule Lux.LLM.OpenRouter do
     """
     @type t :: %__MODULE__{
             endpoint: String.t(),
-            model: String.t() | nil,
+            model: String.t() | atom() | nil,
+            models: [String.t() | atom()] | nil,
+            provider: map() | nil,
             api_key: String.t() | nil,
             site_url: String.t() | nil,
             site_name: String.t() | nil,
@@ -51,6 +72,7 @@ defmodule Lux.LLM.OpenRouter do
             temperature: float(),
             frequency_penalty: float(),
             receive_timeout: integer(),
+            max_retries: integer(),
             seed: integer() | nil,
             n: integer(),
             json_response: boolean(),
@@ -63,6 +85,8 @@ defmodule Lux.LLM.OpenRouter do
 
     defstruct endpoint: "https://openrouter.ai/api/v1/chat/completions",
               model: nil,
+              models: nil,
+              provider: nil,
               api_key: nil,
               site_url: nil,
               site_name: nil,
@@ -71,6 +95,7 @@ defmodule Lux.LLM.OpenRouter do
               temperature: 0.7,
               frequency_penalty: 0.0,
               receive_timeout: 60_000,
+              max_retries: 3,
               seed: nil,
               n: 1,
               # Defaults to false because OpenRouter is a multi-model gateway
@@ -86,11 +111,7 @@ defmodule Lux.LLM.OpenRouter do
   @impl true
 
   def call(prompt, tools, config) when is_map(config) do
-    default_model =
-      case Application.get_env(:lux, :open_router_models) do
-        models when is_list(models) -> models[:default]
-        _ -> "openai/gpt-4o-mini"
-      end || "openai/gpt-4o-mini"
+    default_model = resolve_model_name(:default) || "openai/gpt-4o-mini"
 
     default_api_key =
       case Application.get_env(:lux, :api_keys) do
@@ -113,15 +134,23 @@ defmodule Lux.LLM.OpenRouter do
     messages = config.messages ++ build_messages(prompt)
     tools_config = build_tools_config(tools)
 
-    resolved_model = Lux.Config.resolve(config.model)
+    resolved_model = resolve_model_name(config.model)
+
+    resolved_models =
+      if is_list(config.models) do
+        Enum.map(config.models, &resolve_model_name/1)
+      else
+        nil
+      end
 
     body =
       %{
-        model: resolved_model,
         messages: messages,
         temperature: config.temperature,
         frequency_penalty: config.frequency_penalty
       }
+      |> maybe_add_model(resolved_model, resolved_models)
+      |> maybe_add_provider(config.provider)
       |> maybe_add_max_tokens(config.max_tokens)
       |> maybe_add_tools(tools_config, config.tool_choice)
       |> maybe_add_response_format(config)
@@ -130,30 +159,42 @@ defmodule Lux.LLM.OpenRouter do
 
     headers = build_headers(config)
 
-    [
-      url: Lux.Config.resolve(config.endpoint || @default_endpoint),
-      json: body,
-      headers: headers,
-      receive_timeout: config.receive_timeout
-    ]
-    |> Keyword.merge(Application.get_env(:lux, __MODULE__, []))
-    |> Req.new()
-    |> Req.post()
-    |> case do
+    req_options =
+      [
+        url: Lux.Config.resolve(config.endpoint || @default_endpoint),
+        json: body,
+        headers: headers,
+        receive_timeout: config.receive_timeout
+      ]
+      |> Keyword.merge(Application.get_env(:lux, __MODULE__, []))
+
+    case post_with_retry(req_options, config.max_retries) do
       {:ok, %{status: 200} = response} ->
         handle_response(response, config)
 
-      {:ok, %{status: 401}} ->
-        {:error, :invalid_api_key}
+      {:ok, %{status: 401, body: body}} ->
+        case decode_error(body) do
+          {:error, {_, msg, meta}} -> {:error, {401, msg || "Invalid API key", meta}}
+          _ -> {:error, :invalid_api_key}
+        end
 
-      {:ok, %{status: status, body: %{"error" => %{"message" => message}}}} ->
-        {:error, {status, message}}
+      {:ok, %{status: status, body: body, headers: resp_headers}} when status in [429, 503] ->
+        {:error, {_, msg, meta}} = decode_error(body)
+        retry_after = get_header_value(resp_headers, "retry-after")
+        ratelimit_remaining = get_header_value(resp_headers, "x-ratelimit-remaining")
 
-      {:ok, %{status: status, body: %{"error" => message}}} when is_binary(message) ->
-        {:error, {status, message}}
+        meta =
+          meta
+          |> Map.put(:retry_after, retry_after)
+          |> Map.put(:ratelimit_remaining, ratelimit_remaining)
+          |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+          |> Map.new()
+
+        {:error, {status, msg, meta}}
 
       {:ok, %{status: status, body: body}} ->
-        {:error, {status, inspect(body)}}
+        {:error, {code, msg, meta}} = decode_error(body)
+        {:error, {status || code, msg, meta}}
 
       {:error, error} ->
         handle_error(error)
@@ -336,6 +377,10 @@ defmodule Lux.LLM.OpenRouter do
     end
   end
 
+  defp handle_response(%{body: %{"error" => _} = body}, _config) do
+    decode_error(body)
+  end
+
   defp handle_response(%{body: body}, _config) when is_map(body) do
     with %{"choices" => [choice | _]} <- body,
          %{"message" => message} <- choice do
@@ -351,11 +396,7 @@ defmodule Lux.LLM.OpenRouter do
           tool_calls_results: tool_calls_results
         }
 
-        usage =
-          case body["usage"] do
-            %{} = u -> u
-            _ -> %{"prompt_tokens" => 0, "completion_tokens" => 0, "total_tokens" => 0}
-          end
+        usage = normalize_usage(body["usage"])
 
         metadata = %{
           id: body["id"],
@@ -490,5 +531,194 @@ defmodule Lux.LLM.OpenRouter do
   defp handle_error(error) do
     Logger.error("OpenRouter API error: #{inspect(error)}")
     {:error, "OpenRouter API error: #{inspect(error)}"}
+  end
+
+  # --- Helpers for Routing, Retries, Cost Accounting, and Error Decoding ---
+
+  defp resolve_model_name(atom) when is_atom(atom) and not is_nil(atom) do
+    case Application.get_env(:lux, :open_router_models) do
+      models when is_list(models) -> models[atom] || to_string(atom)
+      _ -> to_string(atom)
+    end
+  end
+
+  defp resolve_model_name(str) when is_binary(str), do: Lux.Config.resolve(str)
+  defp resolve_model_name(nil), do: nil
+  defp resolve_model_name(other), do: other
+
+  defp maybe_add_model(body, nil, nil), do: Map.put(body, :model, "openai/gpt-4o-mini")
+  defp maybe_add_model(body, model, nil), do: Map.put(body, :model, model)
+  defp maybe_add_model(body, nil, models) when is_list(models), do: Map.put(body, :models, models)
+
+  defp maybe_add_model(body, model, models) when is_list(models) do
+    body
+    |> Map.put(:model, model)
+    |> Map.put(:models, models)
+  end
+
+  defp maybe_add_provider(body, nil), do: body
+  defp maybe_add_provider(body, provider) when is_map(provider), do: Map.put(body, :provider, provider)
+  defp maybe_add_provider(body, _), do: body
+
+  defp post_with_retry(req_options, attempts_left) do
+    case Req.new(req_options) |> Req.post() do
+      {:ok, %{status: status, headers: headers} = response}
+      when status in [429, 503] and attempts_left > 1 ->
+        delay = parse_retry_after(headers)
+        Process.sleep(delay)
+        post_with_retry(req_options, attempts_left - 1)
+
+      other ->
+        other
+    end
+  end
+
+  defp parse_retry_after(headers) do
+    case get_header_value(headers, "retry-after") do
+      nil ->
+        500
+
+      val ->
+        case Integer.parse(to_string(val)) do
+          {sec, _} -> min(sec * 1000, 2000)
+          :error -> 500
+        end
+    end
+  end
+
+  defp get_header_value(headers, name) when is_list(headers) or is_map(headers) do
+    headers
+    |> Enum.find_value(fn
+      {k, v} when is_binary(k) ->
+        if String.downcase(k) == name do
+          if is_list(v), do: List.first(v), else: v
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp get_header_value(_, _), do: nil
+
+  defp normalize_usage(%{} = u) do
+    cost =
+      case {u["cost"], u["total_cost"]} do
+        {c, _} when is_number(c) -> c * 1.0
+        {_, c} when is_number(c) -> c * 1.0
+        _ -> 0.0
+      end
+
+    %{
+      "prompt_tokens" => u["prompt_tokens"] || 0,
+      "completion_tokens" => u["completion_tokens"] || 0,
+      "total_tokens" => u["total_tokens"] || 0,
+      "cost" => cost,
+      "total_cost" => cost,
+      "cost_details" => u["cost_details"] || %{}
+    }
+  end
+
+  defp normalize_usage(_) do
+    %{
+      "prompt_tokens" => 0,
+      "completion_tokens" => 0,
+      "total_tokens" => 0,
+      "cost" => 0.0,
+      "total_cost" => 0.0,
+      "cost_details" => %{}
+    }
+  end
+
+  @doc """
+  Decodes OpenRouter error envelopes from either HTTP 200 or non-200 responses
+  into a structured `{:error, {code, message, metadata}}` tuple.
+  """
+  def decode_error(%{"error" => %{"code" => code, "message" => message} = err_map}) do
+    metadata = Map.get(err_map, "metadata", %{})
+    {:error, {code, message, metadata}}
+  end
+
+  def decode_error(%{"error" => %{"message" => message} = err_map}) do
+    code = Map.get(err_map, "code", 500)
+    metadata = Map.get(err_map, "metadata", %{})
+    {:error, {code, message, metadata}}
+  end
+
+  def decode_error(%{"error" => message}) when is_binary(message) do
+    {:error, {500, message, %{}}}
+  end
+
+  def decode_error(other) when is_binary(other) do
+    case Jason.decode(other) do
+      {:ok, decoded} -> decode_error(decoded)
+      _ -> {:error, {500, other, %{}}}
+    end
+  end
+
+  def decode_error(other) do
+    {:error, {500, inspect(other), %{}}}
+  end
+
+  @doc """
+  Aggregates cost and token usage statistics across a single `ResponseSignal`
+  or a list of `ResponseSignal` structs (or raw usage maps).
+  """
+  def cost_summary(signals_or_usages) when is_list(signals_or_usages) do
+    Enum.reduce(
+      signals_or_usages,
+      %{
+        total_cost: 0.0,
+        total_tokens: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        by_model: %{}
+      },
+      fn item, acc ->
+        {usage, model} = extract_usage_and_model(item)
+        cost = Map.get(usage, "cost", 0.0)
+        p_tokens = Map.get(usage, "prompt_tokens", 0)
+        c_tokens = Map.get(usage, "completion_tokens", 0)
+        t_tokens = Map.get(usage, "total_tokens", p_tokens + c_tokens)
+
+        model_key = model || "unknown"
+        current_model_stats = Map.get(acc.by_model, model_key, %{cost: 0.0, calls: 0, tokens: 0})
+        updated_model_stats = %{
+          cost: current_model_stats.cost + cost,
+          calls: current_model_stats.calls + 1,
+          tokens: current_model_stats.tokens + t_tokens
+        }
+
+        %{
+          total_cost: acc.total_cost + cost,
+          total_tokens: acc.total_tokens + t_tokens,
+          prompt_tokens: acc.prompt_tokens + p_tokens,
+          completion_tokens: acc.completion_tokens + c_tokens,
+          by_model: Map.put(acc.by_model, model_key, updated_model_stats)
+        }
+      end
+    )
+  end
+
+  def cost_summary(signal_or_usage), do: cost_summary([signal_or_usage])
+
+  defp extract_usage_and_model(%ResponseSignal{metadata: %{usage: usage}, payload: %{model: model}}),
+    do: {usage, model}
+
+  defp extract_usage_and_model(%ResponseSignal{metadata: %{usage: usage}}), do: {usage, "unknown"}
+  defp extract_usage_and_model(%{"cost" => _} = usage), do: {usage, "unknown"}
+  defp extract_usage_and_model(_), do: {%{}, "unknown"}
+
+  @doc """
+  Checks if a single `ResponseSignal`, usage map, or accumulated cost float
+  is within a specified `max_budget_usd`.
+  """
+  def within_budget?(cost_float, max_budget_usd) when is_number(cost_float) and is_number(max_budget_usd) do
+    cost_float <= max_budget_usd
+  end
+
+  def within_budget?(%{} = signal_or_usage, max_budget_usd) when is_number(max_budget_usd) do
+    summary = cost_summary(signal_or_usage)
+    summary.total_cost <= max_budget_usd
   end
 end

@@ -645,5 +645,147 @@ defmodule Lux.LLM.OpenRouterTest do
       assert msg =~ "Failed to decode arguments for tool SomeTool"
     end
   end
+
+  describe "model routing and fallbacks" do
+    test "includes models fallback array and provider preferences in request body" do
+      config = %OpenRouter.Config{
+        endpoint: "http://localhost/test/openrouter/fallback",
+        api_key: "test-key",
+        models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"],
+        provider: %{order: ["OpenAI", "Anthropic"], allow_fallbacks: true}
+      }
+
+      Req.Test.stub(OpenRouter, fn conn ->
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        json_body = Jason.decode!(body)
+
+        assert json_body["models"] == ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"]
+        assert json_body["provider"] == %{"order" => ["OpenAI", "Anthropic"], "allow_fallbacks" => true}
+
+        Req.Test.json(conn, %{
+          "model" => "openai/gpt-4o",
+          "choices" => [
+            %{"message" => %{"content" => "Fallback success"}}
+          ]
+        })
+      end)
+
+      assert {:ok, signal} = OpenRouter.call("test prompt", [], config)
+      assert signal.payload.content == %{"text" => "Fallback success"}
+    end
+
+    test "resolves :cheapest, :default, and :smartest model atoms from Application env" do
+      Application.put_env(:lux, :open_router_models,
+        cheapest: "openai/gpt-4o-mini",
+        default: "openai/gpt-4o",
+        smartest: "anthropic/claude-3.5-sonnet"
+      )
+
+      config = %OpenRouter.Config{
+        endpoint: "http://localhost/test/openrouter/cheapest",
+        api_key: "test-key",
+        model: :cheapest
+      }
+
+      Req.Test.stub(OpenRouter, fn conn ->
+        {:ok, body, _conn} = Plug.Conn.read_body(conn)
+        json_body = Jason.decode!(body)
+        assert json_body["model"] == "openai/gpt-4o-mini"
+
+        Req.Test.json(conn, %{
+          "model" => "openai/gpt-4o-mini",
+          "choices" => [
+            %{"message" => %{"content" => "Cheapest model response"}}
+          ]
+        })
+      end)
+
+      assert {:ok, _signal} = OpenRouter.call("test prompt", [], config)
+    end
+  end
+
+  describe "error handling, retry-after, and HTTP 200 error envelope" do
+    test "decodes structured error envelope returned inside HTTP 200 response" do
+      config = %OpenRouter.Config{
+        endpoint: "http://localhost/test/openrouter/error200",
+        api_key: "test-key"
+      }
+
+      Req.Test.stub(OpenRouter, fn conn ->
+        Req.Test.json(conn, %{
+          "error" => %{
+            "code" => 502,
+            "message" => "Provider upstream error after generation began",
+            "metadata" => %{"provider_name" => "OpenAI"}
+          }
+        })
+      end)
+
+      assert {:error, {502, "Provider upstream error after generation began", %{"provider_name" => "OpenAI"}}} =
+               OpenRouter.call("test prompt", [], config)
+    end
+
+    test "handles 429 rate limit response with Retry-After header and metadata" do
+      config = %OpenRouter.Config{
+        endpoint: "http://localhost/test/openrouter/rate429",
+        api_key: "test-key",
+        max_retries: 1
+      }
+
+      Req.Test.stub(OpenRouter, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("retry-after", "2")
+        |> Plug.Conn.put_resp_header("x-ratelimit-remaining", "0")
+        |> Plug.Conn.send_resp(429, ~s({"error": {"code": 429, "message": "Rate limit exceeded"}}))
+      end)
+
+      assert {:error, {429, "Rate limit exceeded", metadata}} =
+               OpenRouter.call("test prompt", [], config)
+
+      assert metadata.retry_after == "2"
+      assert metadata.ratelimit_remaining == "0"
+    end
+  end
+
+  describe "usage accounting and cost tracking" do
+    test "extracts cost and total_cost from response usage map and supports cost_summary/1" do
+      config = %OpenRouter.Config{
+        endpoint: "http://localhost/test/openrouter/cost",
+        api_key: "test-key"
+      }
+
+      Req.Test.stub(OpenRouter, fn conn ->
+        Req.Test.json(conn, %{
+          "model" => "openai/gpt-4o",
+          "choices" => [
+            %{"message" => %{"content" => "Cost tracked"}}
+          ],
+          "usage" => %{
+            "prompt_tokens" => 100,
+            "completion_tokens" => 50,
+            "total_tokens" => 150,
+            "cost" => 0.015,
+            "cost_details" => %{"upstream_inference_cost" => 0.015}
+          }
+        })
+      end)
+
+      assert {:ok, signal} = OpenRouter.call("test prompt", [], config)
+      assert signal.metadata.usage["cost"] == 0.015
+      assert signal.metadata.usage["total_cost"] == 0.015
+      assert signal.metadata.usage["cost_details"] == %{"upstream_inference_cost" => 0.015}
+
+      summary = OpenRouter.cost_summary(signal)
+      assert summary.total_cost == 0.015
+      assert summary.total_tokens == 150
+      assert summary.prompt_tokens == 100
+      assert summary.completion_tokens == 50
+      assert summary.by_model["openai/gpt-4o"].calls == 1
+      assert summary.by_model["openai/gpt-4o"].cost == 0.015
+
+      assert OpenRouter.within_budget?(signal, 0.02)
+      refute OpenRouter.within_budget?(signal, 0.01)
+    end
+  end
 end
 
