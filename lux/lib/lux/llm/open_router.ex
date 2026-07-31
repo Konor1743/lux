@@ -573,7 +573,7 @@ defmodule Lux.LLM.OpenRouter do
         max_delay = Map.get(config, :max_retry_delay, 60_000) || 60_000
 
         if delay > max_delay do
-          response
+          {:ok, response}
         else
           sleeper = Map.get(config, :sleeper) || (&Process.sleep/1)
           sleeper.(delay)
