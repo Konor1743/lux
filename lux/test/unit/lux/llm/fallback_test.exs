@@ -1,0 +1,115 @@
+defmodule Lux.LLM.FallbackTest do
+  use UnitAPICase, async: true
+
+  alias Lux.LLM.Fallback
+  alias Lux.LLM.ResponseSignal
+  alias Lux.Signal
+
+  defp make_ok_signal(model_name) do
+    payload = %{
+      content: %{"answer" => "ok from #{model_name}"},
+      model: model_name,
+      finish_reason: "stop",
+      tool_calls: nil,
+      tool_calls_results: nil
+    }
+
+    Signal.new(%{schema_id: ResponseSignal, payload: payload, metadata: %{}})
+  end
+
+  describe "fallback_error?/2" do
+    test "returns true for HTTP 429, 503, and server error codes" do
+      assert Fallback.fallback_error?({429, "Rate limit"})
+      assert Fallback.fallback_error?({503, "Service unavailable"})
+      assert Fallback.fallback_error?({500, "Internal error"})
+      assert Fallback.fallback_error?(429)
+      assert Fallback.fallback_error?(503)
+    end
+
+    test "returns true for network errors" do
+      assert Fallback.fallback_error?(:econnrefused)
+      assert Fallback.fallback_error?(:timeout)
+      assert Fallback.fallback_error?(:closed)
+      assert Fallback.fallback_error?(%Req.TransportError{reason: :econnrefused})
+    end
+
+    test "returns true for string messages matching error criteria" do
+      assert Fallback.fallback_error?("Error 429: Too Many Requests")
+      assert Fallback.fallback_error?("Service overloaded 503")
+      assert Fallback.fallback_error?("connection refused by peer")
+    end
+
+    test "returns false for unhandled domain errors unless fallback_on_all_errors is set" do
+      refute Fallback.fallback_error?(:invalid_api_key)
+      assert Fallback.fallback_error?(:invalid_api_key, %{fallback_on_all_errors: true})
+    end
+
+    test "returns true for additional error atoms and HTTP status codes" do
+      for atom <- [:rate_limit, :too_many_requests, :service_unavailable, :timeout, :connect_timeout] do
+        assert Fallback.fallback_error?(atom)
+      end
+
+      for status <- [408, 429, 500, 502, 503, 504, 507, 529] do
+        assert Fallback.fallback_error?(status)
+        assert Fallback.fallback_error?({status, "Error message"})
+      end
+    end
+  end
+
+  describe "call/3 failover execution" do
+    test "returns primary result when primary succeeds" do
+      primary_spec = fn _p, _t -> {:ok, make_ok_signal("primary")} end
+      fallback_spec = fn _p, _t -> {:ok, make_ok_signal("fallback")} end
+
+      assert {:ok, signal} = Fallback.call("hello", [], primary: primary_spec, fallbacks: [fallback_spec])
+      assert signal.payload.model == "primary"
+      assert signal.metadata.fallback_history == []
+    end
+
+    test "transparently fails over to fallback when primary encounters 429" do
+      primary_spec = fn _p, _t -> {:error, {429, "Rate limit exceeded"}} end
+      fallback_spec = fn _p, _t -> {:ok, make_ok_signal("fallback_1")} end
+
+      assert {:ok, signal} = Fallback.call("hello", [], primary: primary_spec, fallbacks: [fallback_spec])
+      assert signal.payload.model == "fallback_1"
+
+      assert [attempt] = signal.metadata.fallback_history
+      assert attempt.error == {429, "Rate limit exceeded"}
+      assert %DateTime{} = attempt.timestamp
+    end
+
+    test "traverses multiple fallbacks sequentially recording history" do
+      primary_spec = fn _p, _t -> {:error, {429, "Rate limit"}} end
+      fallback_1 = fn _p, _t -> {:error, {503, "Service unavailable"}} end
+      fallback_2 = fn _p, _t -> {:ok, make_ok_signal("fallback_2")} end
+
+      assert {:ok, signal} = Fallback.call("hello", [], primary: primary_spec, fallbacks: [fallback_1, fallback_2])
+      assert signal.payload.model == "fallback_2"
+
+      history = signal.metadata.fallback_history
+      assert length(history) == 2
+
+      [attempt1, attempt2] = history
+      assert attempt1.error == {429, "Rate limit"}
+      assert attempt2.error == {503, "Service unavailable"}
+    end
+
+    test "returns error tuple when all fallbacks fail" do
+      primary_spec = fn _p, _t -> {:error, {429, "Rate limit"}} end
+      fallback_spec = fn _p, _t -> {:error, :econnrefused} end
+
+      assert {:error, {:all_fallbacks_failed, history}} =
+               Fallback.call("hello", [], primary: primary_spec, fallbacks: [fallback_spec])
+
+      assert length(history) == 2
+    end
+
+    test "stops immediately on non-retryable error when fallback_on_all_errors is false" do
+      primary_spec = fn _p, _t -> {:error, :invalid_request} end
+      fallback_spec = fn _p, _t -> {:ok, make_ok_signal("fallback")} end
+
+      assert {:error, :invalid_request} =
+               Fallback.call("hello", [], primary: primary_spec, fallbacks: [fallback_spec])
+    end
+  end
+end

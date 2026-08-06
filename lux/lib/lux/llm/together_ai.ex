@@ -3,10 +3,11 @@ defmodule Lux.LLM.TogetherAI do
     Together AI LLM implementation that supports passing Beams, Prisms, and Lenses as tools.
     """
 
-    @behaviour Lux.LLM
+    @behaviour Lux.LLM.Provider
 
     alias Lux.Beam
     alias Lux.Lens
+    alias Lux.LLM.ModelConfig
     alias Lux.LLM.ResponseSignal
     alias Lux.Prism
 
@@ -15,6 +16,33 @@ defmodule Lux.LLM.TogetherAI do
     require Logger
 
     @endpoint "https://api.together.xyz/v1/chat/completions"
+
+    @impl Lux.LLM.Provider
+    def id, do: :together
+
+    @impl Lux.LLM.Provider
+    def models do
+      [
+        %ModelConfig{
+          id: "mistral-7b-instruct",
+          name: "Mistral 7B Instruct",
+          provider_id: :together,
+          cost_per_1k_prompt_tokens: 0.0002,
+          cost_per_1k_completion_tokens: 0.0002,
+          capabilities: [:tools],
+          context_window: 32_000
+        },
+        %ModelConfig{
+          id: "llama-3.1-70b-instruct",
+          name: "Llama 3.1 70B Instruct",
+          provider_id: :together,
+          cost_per_1k_prompt_tokens: 0.0009,
+          cost_per_1k_completion_tokens: 0.0009,
+          capabilities: [:tools],
+          context_window: 128_000
+        }
+      ]
+    end
 
     defmodule Config do
       @moduledoc """
@@ -47,17 +75,25 @@ defmodule Lux.LLM.TogetherAI do
                 messages: []
     end
 
-    @impl true
+    @impl Lux.LLM.Provider
     def call(prompt, tools, config) do
+      opts_map =
+        cond do
+          is_struct(config) -> Map.from_struct(config)
+          is_map(config) -> config
+          is_list(config) -> Enum.into(config, %{})
+          true -> %{}
+        end
+
       config =
         struct(
           Config,
           Map.merge(
             %{
-              model: Application.get_env(:lux, :together_ai_models)[:default],
+              model: Application.get_env(:lux, :together_ai_models)[:default] || "mistral-7b-instruct",
               api_key: Application.get_env(:lux, :api_keys)[:together]
             },
-            config
+            opts_map
           )
         )
 

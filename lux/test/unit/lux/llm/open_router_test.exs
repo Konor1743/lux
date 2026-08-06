@@ -485,7 +485,7 @@ defmodule Lux.LLM.OpenRouterTest do
         Plug.Conn.send_resp(conn, 500, "<html>Bad Gateway</html>")
       end)
 
-      assert {:error, {500, "\"<html>Bad Gateway</html>\""}} = OpenRouter.call("test prompt", [], config)
+      assert {:error, {500, "<html>Bad Gateway</html>"}} = OpenRouter.call("test prompt", [], config)
     end
 
     test "adversarial tool execution: missing module and argument JSON decode failure" do

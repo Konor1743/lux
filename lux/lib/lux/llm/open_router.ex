@@ -42,10 +42,11 @@ defmodule Lux.LLM.OpenRouter do
     Provides `cost_summary/1` and `within_budget?/2` helpers for budget monitoring.
   """
 
-  @behaviour Lux.LLM
+  @behaviour Lux.LLM.Provider
 
   alias Lux.Beam
   alias Lux.Lens
+  alias Lux.LLM.ModelConfig
   alias Lux.LLM.ResponseSignal
   alias Lux.Prism
   alias Lux.Signal
@@ -55,6 +56,42 @@ defmodule Lux.LLM.OpenRouter do
   require Logger
 
   @default_endpoint "https://openrouter.ai/api/v1/chat/completions"
+
+  @impl Lux.LLM.Provider
+  def id, do: :openrouter
+
+  @impl Lux.LLM.Provider
+  def models do
+    [
+      %ModelConfig{
+        id: "openai/gpt-4o",
+        name: "OpenAI GPT-4o (via OpenRouter)",
+        provider_id: :openrouter,
+        cost_per_1k_prompt_tokens: 0.0025,
+        cost_per_1k_completion_tokens: 0.010,
+        capabilities: [:tools, :json_schema, :vision],
+        context_window: 128_000
+      },
+      %ModelConfig{
+        id: "anthropic/claude-3.5-sonnet",
+        name: "Claude 3.5 Sonnet (via OpenRouter)",
+        provider_id: :openrouter,
+        cost_per_1k_prompt_tokens: 0.003,
+        cost_per_1k_completion_tokens: 0.015,
+        capabilities: [:tools, :json_schema, :vision],
+        context_window: 200_000
+      },
+      %ModelConfig{
+        id: "meta-llama/llama-3.1-70b-instruct",
+        name: "Llama 3.1 70B Instruct (via OpenRouter)",
+        provider_id: :openrouter,
+        cost_per_1k_prompt_tokens: 0.00035,
+        cost_per_1k_completion_tokens: 0.0004,
+        capabilities: [:tools],
+        context_window: 128_000
+      }
+    ]
+  end
 
   defmodule Config do
     @moduledoc """
@@ -113,9 +150,16 @@ defmodule Lux.LLM.OpenRouter do
               messages: []
   end
 
-  @impl true
+  @impl Lux.LLM.Provider
+  def call(prompt, tools, config) do
+    opts_map =
+      cond do
+        is_struct(config) -> Map.from_struct(config)
+        is_map(config) -> config
+        is_list(config) -> Enum.into(config, %{})
+        true -> %{}
+      end
 
-  def call(prompt, tools, config) when is_map(config) do
     default_model = resolve_model_name(:default) || "openai/gpt-4o-mini"
 
     default_api_key =
@@ -132,7 +176,7 @@ defmodule Lux.LLM.OpenRouter do
             model: default_model,
             api_key: default_api_key
           },
-          config
+          opts_map
         )
       )
 
@@ -177,11 +221,8 @@ defmodule Lux.LLM.OpenRouter do
       {:ok, %{status: 200} = response} ->
         handle_response(response, config)
 
-      {:ok, %{status: 401, body: body}} ->
-        case decode_error(body) do
-          {:error, {_, msg, meta}} -> {:error, {401, msg || "Invalid API key", meta}}
-          _ -> {:error, :invalid_api_key}
-        end
+      {:ok, %{status: 401}} ->
+        {:error, :invalid_api_key}
 
       {:ok, %{status: status, body: body, headers: resp_headers}} when status in [429, 503] ->
         {:error, {_, msg, meta}} = decode_error(body)
@@ -195,11 +236,21 @@ defmodule Lux.LLM.OpenRouter do
           |> Enum.reject(fn {_k, v} -> is_nil(v) end)
           |> Map.new()
 
-        {:error, {status, msg, meta}}
+        if meta == %{} do
+          {:error, {status, msg}}
+        else
+          {:error, {status, msg, meta}}
+        end
 
       {:ok, %{status: status, body: body}} ->
         {:error, {code, msg, meta}} = decode_error(body)
-        {:error, {status || code, msg, meta}}
+        st = status || code
+
+        if is_map(meta) and map_size(meta) > 0 do
+          {:error, {st, msg, meta}}
+        else
+          {:error, {st, msg}}
+        end
 
       {:error, error} ->
         handle_error(error)
@@ -284,15 +335,15 @@ defmodule Lux.LLM.OpenRouter do
 
     site_url =
       cond do
-        is_binary(config.http_referer) and config.http_referer != "" -> Lux.Config.resolve(config.http_referer)
-        is_binary(config.site_url) and config.site_url != "" -> Lux.Config.resolve(config.site_url)
+        not is_nil(config.http_referer) and config.http_referer != "" -> Lux.Config.resolve(config.http_referer)
+        not is_nil(config.site_url) and config.site_url != "" -> Lux.Config.resolve(config.site_url)
         true -> nil
       end
 
     site_name =
       cond do
-        is_binary(config.openrouter_title) and config.openrouter_title != "" -> Lux.Config.resolve(config.openrouter_title)
-        is_binary(config.site_name) and config.site_name != "" -> Lux.Config.resolve(config.site_name)
+        not is_nil(config.openrouter_title) and config.openrouter_title != "" -> Lux.Config.resolve(config.openrouter_title)
+        not is_nil(config.site_name) and config.site_name != "" -> Lux.Config.resolve(config.site_name)
         true -> nil
       end
 
@@ -364,20 +415,27 @@ defmodule Lux.LLM.OpenRouter do
     }
   end
 
-  def tool_to_function(%Lens{module_name: name, description: description, schema: schema}) do
+  def tool_to_function(%Lens{module_name: name, description: description, schema: schema, params: params}) do
+    parameters =
+      cond do
+        is_map(schema) and map_size(schema) > 0 -> schema
+        is_map(params) and map_size(params) > 0 -> params
+        true -> %{}
+      end
+
     %{
       type: "function",
       function: %{
         name: String.replace(name, ".", "_"),
         description: description || "",
-        parameters: schema
+        parameters: parameters
       }
     }
   end
 
-  defp handle_response(%{body: body}, _config) when is_binary(body) do
+  defp handle_response(%{body: body}, config) when is_binary(body) do
     case Jason.decode(body) do
-      {:ok, decoded} -> handle_response(%{body: decoded}, _config)
+      {:ok, decoded} -> handle_response(%{body: decoded}, config)
       {:error, _} -> {:error, "Failed to decode response body: #{inspect(body)}"}
     end
   end

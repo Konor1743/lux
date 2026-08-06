@@ -3,10 +3,11 @@ defmodule Lux.LLM.OpenAI do
   OpenAI LLM implementation that supports passing Beams, Prisms, and Lenses as tools.
   """
 
-  @behaviour Lux.LLM
+  @behaviour Lux.LLM.Provider
 
   alias Lux.Beam
   alias Lux.Lens
+  alias Lux.LLM.ModelConfig
   alias Lux.LLM.ResponseSignal
   alias Lux.Prism
 
@@ -15,6 +16,42 @@ defmodule Lux.LLM.OpenAI do
   require Logger
 
   @endpoint "https://api.openai.com/v1/chat/completions"
+
+  @impl Lux.LLM.Provider
+  def id, do: :openai
+
+  @impl Lux.LLM.Provider
+  def models do
+    [
+      %ModelConfig{
+        id: "gpt-4o",
+        name: "GPT-4o",
+        provider_id: :openai,
+        cost_per_1k_prompt_tokens: 0.0025,
+        cost_per_1k_completion_tokens: 0.010,
+        capabilities: [:tools, :json_schema, :vision],
+        context_window: 128_000
+      },
+      %ModelConfig{
+        id: "gpt-4o-mini",
+        name: "GPT-4o Mini",
+        provider_id: :openai,
+        cost_per_1k_prompt_tokens: 0.00015,
+        cost_per_1k_completion_tokens: 0.0006,
+        capabilities: [:tools, :json_schema, :vision],
+        context_window: 128_000
+      },
+      %ModelConfig{
+        id: "gpt-4",
+        name: "GPT-4",
+        provider_id: :openai,
+        cost_per_1k_prompt_tokens: 0.03,
+        cost_per_1k_completion_tokens: 0.06,
+        capabilities: [:tools],
+        context_window: 8192
+      }
+    ]
+  end
 
   defmodule Config do
     @moduledoc """
@@ -57,17 +94,25 @@ defmodule Lux.LLM.OpenAI do
               messages: []
   end
 
-  @impl true
+  @impl Lux.LLM.Provider
   def call(prompt, tools, config) do
+    opts_map =
+      cond do
+        is_struct(config) -> Map.from_struct(config)
+        is_map(config) -> config
+        is_list(config) -> Enum.into(config, %{})
+        true -> %{}
+      end
+
     config =
       struct(
         Config,
         Map.merge(
           %{
-            model: Application.get_env(:lux, :open_ai_models)[:default],
+            model: Application.get_env(:lux, :open_ai_models)[:default] || "gpt-4",
             api_key: Application.get_env(:lux, :api_keys)[:openai]
           },
-          config
+          opts_map
         )
       )
 
