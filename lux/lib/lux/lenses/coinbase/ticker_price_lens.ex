@@ -40,10 +40,12 @@ defmodule Lux.Lenses.Coinbase.CoinbaseTickerPriceLens do
   alias Lux.Coinbase.Client
   alias Lux.Coinbase.WebSocket.Client, as: WSClient
 
+  defoverridable focus: 1, focus: 2
+
   @doc """
-  Focuses the lens to fetch ticker price snapshot from Coinbase REST API.
+  Focuses the lens to fetch ticker price from Coinbase REST API.
   """
-  def focus(input, opts) do
+  def focus(input \\ %{}, opts \\ []) do
     product_id =
       Map.get(input, :product_id) ||
         Map.get(input, "product_id") ||

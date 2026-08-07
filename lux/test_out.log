@@ -1,0 +1,431 @@
+    warning: def focus/2 has multiple clauses and also declares default values. In such cases, the default values should be defined in a header. Instead of:
+
+        def foo(:first_clause, b \\ :default) do ... end
+        def foo(:second_clause, b) do ... end
+
+    one should write:
+
+        def foo(a, b \\ :default)
+        def foo(:first_clause, b) do ... end
+        def foo(:second_clause, b) do ... end
+
+    │
+ 47 │   def focus(input, opts) do
+    │       ~
+    │
+    └─ lib/lux/lenses/coinbase/exchange_info_lens.ex:47:7
+
+    warning: def focus/2 has multiple clauses and also declares default values. In such cases, the default values should be defined in a header. Instead of:
+
+        def foo(:first_clause, b \\ :default) do ... end
+        def foo(:second_clause, b) do ... end
+
+    one should write:
+
+        def foo(a, b \\ :default)
+        def foo(:first_clause, b) do ... end
+        def foo(:second_clause, b) do ... end
+
+    │
+ 46 │   def focus(input, opts) do
+    │       ~
+    │
+    └─ lib/lux/lenses/coinbase/ticker_price_lens.ex:46:7
+
+
+16:27:12.578 [info] Started Snake Manager
+
+16:27:12.581 [info] Started Pet Snake Manager
+
+16:27:12.691 [info] Starting AgentHub with name: Lux.AgentHub
+
+16:27:12.714 [info] Initializing AgentHub with options: []
+Running ExUnit with seed: 889486, max_cases: 12
+Excluding tags: [:skip, :integration, :unit]
+
+..........
+
+  1) test Snapshot queries via REST API mocking CoinbaseExchangeInfoLens.focus/2 queries specific product exchange info (Lux.Coinbase.LensesTest)
+     test/lux/coinbase/lenses_test.exs:66
+     ** (UndefinedFunctionError) function Finch.build/4 is undefined or private
+     code: CoinbaseExchangeInfoLens.focus(%{product_id: "BTC-USD"}, opts)
+     stacktrace:
+       (req 0.5.10) Finch.build(:get, %URI{scheme: "https", authority: "api.coinbase.com", userinfo: nil, host: "api.coinbase.com", port: 443, path: "/api/v3/brokerage/market/products", query: "product_id=BTC-USD", fragment: nil}, [{"accept-encoding", "gzip"}, {"user-agent", "req/0.5.10"}], nil)
+       (req 0.5.10) lib/req/finch.ex:45: Req.Finch.run/1
+       (req 0.5.10) lib/req/request.ex:1045: Req.Request.run_request/1
+       (req 0.5.10) lib/req/request.ex:989: Req.Request.run/1
+       (lux 0.5.0) lib/lux/lens.ex:154: Lux.Lens.focus/2
+       test/lux/coinbase/lenses_test.exs:82: (test)
+
+...........................................................    warning: variable "config" is unused (if the variable is not meant to be used, prefix it with an underscore)
+    │
+ 15 │     test "can fetch current bot user information", %{config: config} do
+    │                                                              ~~~~~~
+    │
+    └─ test/integration/discord_client_test.exs:15:62: Lux.Integration.Discord.ClientTest."test basic Discord API integration can fetch current bot user information"/1
+
+....
+16:27:17.202 [info] Coinbase WebSocket connected to wss://advanced-trade-ws.coinbase.com
+.
+
+  2) test Snapshot queries via REST API mocking CoinbaseTickerPriceLens.focus/2 accepts symbol key alias (Lux.Coinbase.LensesTest)
+     test/lux/coinbase/lenses_test.exs:49
+     ** (UndefinedFunctionError) function Finch.build/4 is undefined or private
+     code: CoinbaseTickerPriceLens.focus(%{symbol: "ETH-USD"}, opts)
+     stacktrace:
+       (req 0.5.10) Finch.build(:get, %URI{scheme: "https", authority: "api.coinbase.com", userinfo: nil, host: "api.coinbase.com", port: 443, path: "/api/v3/brokerage/market/products", query: "symbol=ETH-USD", fragment: nil}, [{"accept-encoding", "gzip"}, {"user-agent", "req/0.5.10"}], nil)
+       (req 0.5.10) lib/req/finch.ex:45: Req.Finch.run/1
+       (req 0.5.10) lib/req/request.ex:1045: Req.Request.run_request/1
+       (req 0.5.10) lib/req/request.ex:989: Req.Request.run/1
+       (lux 0.5.0) lib/lux/lens.ex:154: Lux.Lens.focus/2
+       test/lux/coinbase/lenses_test.exs:59: (test)
+
+.
+
+  3) test Snapshot queries via REST API mocking CoinbaseExchangeInfoLens.focus/2 queries all products when product_id is omitted (Lux.Coinbase.LensesTest)
+     test/lux/coinbase/lenses_test.exs:85
+     ** (UndefinedFunctionError) function Finch.build/4 is undefined or private
+     code: CoinbaseExchangeInfoLens.focus(%{}, opts)
+     stacktrace:
+       (req 0.5.10) Finch.build(:get, %URI{scheme: "https", authority: "api.coinbase.com", userinfo: nil, host: "api.coinbase.com", port: 443, path: "/api/v3/brokerage/market/products", query: "", fragment: nil}, [{"accept-encoding", "gzip"}, {"user-agent", "req/0.5.10"}], nil)
+       (req 0.5.10) lib/req/finch.ex:45: Req.Finch.run/1
+       (req 0.5.10) lib/req/request.ex:1045: Req.Request.run_request/1
+       (req 0.5.10) lib/req/request.ex:989: Req.Request.run/1
+       (lux 0.5.0) lib/lux/lens.ex:154: Lux.Lens.focus/2
+       test/lux/coinbase/lenses_test.exs:101: (test)
+
+
+
+  4) test Snapshot queries via REST API mocking CoinbaseTickerPriceLens.focus/2 queries ticker price with product_id (Lux.Coinbase.LensesTest)
+     test/lux/coinbase/lenses_test.exs:36
+     ** (UndefinedFunctionError) function Finch.build/4 is undefined or private
+     code: CoinbaseTickerPriceLens.focus(%{product_id: "BTC-USD"}, opts)
+     stacktrace:
+       (req 0.5.10) Finch.build(:get, %URI{scheme: "https", authority: "api.coinbase.com", userinfo: nil, host: "api.coinbase.com", port: 443, path: "/api/v3/brokerage/market/products", query: "product_id=BTC-USD", fragment: nil}, [{"accept-encoding", "gzip"}, {"user-agent", "req/0.5.10"}], nil)
+       (req 0.5.10) lib/req/finch.ex:45: Req.Finch.run/1
+       (req 0.5.10) lib/req/request.ex:1045: Req.Request.run_request/1
+       (req 0.5.10) lib/req/request.ex:989: Req.Request.run/1
+       (lux 0.5.0) lib/lux/lens.ex:154: Lux.Lens.focus/2
+       test/lux/coinbase/lenses_test.exs:46: (test)
+
+...
+
+  5) test Snapshot queries via REST API mocking CoinbaseTickerPriceLens.focus/2 returns error on missing product_id (Lux.Coinbase.LensesTest)
+     test/lux/coinbase/lenses_test.exs:62
+     ** (UndefinedFunctionError) function Finch.build/4 is undefined or private
+     code: assert {:error, :missing_product_id} = CoinbaseTickerPriceLens.focus(%{})
+     stacktrace:
+       (req 0.5.10) Finch.build(:get, %URI{scheme: "https", authority: "api.coinbase.com", userinfo: nil, host: "api.coinbase.com", port: 443, path: "/api/v3/brokerage/market/products", query: "", fragment: nil}, [{"accept-encoding", "gzip"}, {"user-agent", "req/0.5.10"}], nil)
+       (req 0.5.10) lib/req/finch.ex:45: Req.Finch.run/1
+       (req 0.5.10) lib/req/request.ex:1045: Req.Request.run_request/1
+       (req 0.5.10) lib/req/request.ex:989: Req.Request.run/1
+       (lux 0.5.0) lib/lux/lens.ex:154: Lux.Lens.focus/2
+       test/lux/coinbase/lenses_test.exs:63: (test)
+
+.
+16:27:19.803 [debug] Company configuration: %Lux.Company{id: "bcf33e0d-cf05-412e-8e91-76240c396e10", name: "Capability Test Team", mission: "Test capability-based task distribution", module: Test.Support.Companies.CapabilityTeam, ceo: %{id: "3f32559e-8134-48b1-bf28-991faab3497d", name: "Project Director", type: :ceo, agent: Test.Support.Agents.ProjectDirector, capabilities: ["delegation", "planning", "management"], goal: "Oversee project execution and team coordination", hub: nil}, signal_router: nil, agent_hub: nil, roles: [%{id: "11c73106-db30-4e99-81ec-271717110976", name: "Writer", type: :member, agent: Test.Support.Agents.Writer, capabilities: ["content_creation", "editing", "writing"], goal: "Create and edit content", hub: nil}, %{id: "5c8b2cef-3679-4fa1-b32a-7760016af088", name: "Analyst", type: :member, agent: Test.Support.Agents.Analyst, capabilities: ["reporting", "data_processing", "analysis"], goal: "Analyze data and create reports", hub: nil}, %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}], objectives: [%Lux.Company.Objective{id: "24b38042-d317-4db2-8d64-8884a8535c91", name: :multi_capability_task, description: "A project requiring multiple capabilities", success_criteria: "All required capabilities are matched and tasks are distributed optimally", input_schema: %{required: ["title", "required_capabilities"], properties: %{"required_capabilities" => %{type: "array"}, "title" => %{type: "string"}}}, steps: ["Research Phase: Gather and analyze data", "Analysis Phase: Process and analyze findings", "Documentation Phase: Create final documentation"], status: :pending, assigned_agents: [], progress: 0, started_at: nil, completed_at: nil, metadata: %{}}], metadata: %{}}
+
+16:27:19.803 [debug] Researcher role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}
+
+16:27:19.835 [debug] Test context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+
+16:27:19.835 [debug] Test signal: %Lux.Signal{id: "3bdb245f-38e3-42a8-8ce0-03311f52f24f", payload: %{"description" => "Create UI mockups", "objective_id" => "a2a83a1c-dbb9-47b5-ba95-4920be11b3d7", "required_capabilities" => ["design", "ui"], "task_id" => "adfcb429-a1e5-4c1f-828d-4cb3ee2330ba", "title" => "Design Task", "type" => "assignment"}, sender: "36ab8d0e-03d9-43bf-83f2-0c878ce7d60f", recipient: nil, timestamp: nil, topic: nil, metadata: %{}, schema_id: Lux.Schemas.Companies.TaskSignal}
+
+16:27:19.869 [info] Analyzing task: Design Task
+
+16:27:19.869 [debug] Task context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+
+16:27:19.869 [debug] Task payload: %{"description" => "Create UI mockups", "objective_id" => "a2a83a1c-dbb9-47b5-ba95-4920be11b3d7", "required_capabilities" => ["design", "ui"], "task_id" => "adfcb429-a1e5-4c1f-828d-4cb3ee2330ba", "title" => "Design Task", "type" => "assignment"}
+.
+16:27:19.897 [debug] Handler response: %Lux.Signal{id: "35370a5c-89ed-4008-81ff-f735fad2ac8e", payload: %{"objective_id" => "a2a83a1c-dbb9-47b5-ba95-4920be11b3d7", "result" => %{"agent_capabilities" => ["analysis", "data_collection", "research"], "error" => "Agent lacks required capabilities", "required_capabilities" => ["design", "ui"], "success" => false}, "status" => "failed", "task_id" => "adfcb429-a1e5-4c1f-828d-4cb3ee2330ba", "type" => "failure"}, sender: nil, recipient: nil, timestamp: ~U[2026-08-07 21:27:19.869605Z], topic: nil, metadata: %{}, schema_id: Lux.Schemas.Companies.TaskSignal}
+
+16:27:19.900 [debug] Company configuration: %Lux.Company{id: "bcf33e0d-cf05-412e-8e91-76240c396e10", name: "Capability Test Team", mission: "Test capability-based task distribution", module: Test.Support.Companies.CapabilityTeam, ceo: %{id: "3f32559e-8134-48b1-bf28-991faab3497d", name: "Project Director", type: :ceo, agent: Test.Support.Agents.ProjectDirector, capabilities: ["delegation", "planning", "management"], goal: "Oversee project execution and team coordination", hub: nil}, signal_router: nil, agent_hub: nil, roles: [%{id: "11c73106-db30-4e99-81ec-271717110976", name: "Writer", type: :member, agent: Test.Support.Agents.Writer, capabilities: ["content_creation", "editing", "writing"], goal: "Create and edit content", hub: nil}, %{id: "5c8b2cef-3679-4fa1-b32a-7760016af088", name: "Analyst", type: :member, agent: Test.Support.Agents.Analyst, capabilities: ["reporting", "data_processing", "analysis"], goal: "Analyze data and create reports", hub: nil}, %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}], objectives: [%Lux.Company.Objective{id: "24b38042-d317-4db2-8d64-8884a8535c91", name: :multi_capability_task, description: "A project requiring multiple capabilities", success_criteria: "All required capabilities are matched and tasks are distributed optimally", input_schema: %{required: ["title", "required_capabilities"], properties: %{"required_capabilities" => %{type: "array"}, "title" => %{type: "string"}}}, steps: ["Research Phase: Gather and analyze data", "Analysis Phase: Process and analyze findings", "Documentation Phase: Create final documentation"], status: :pending, assigned_agents: [], progress: 0, started_at: nil, completed_at: nil, metadata: %{}}], metadata: %{}}
+.
+16:27:19.900 [debug] Researcher role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}
+.
+16:27:19.900 [debug] Test context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+.
+16:27:19.900 [info] Analyzing task: Analysis Task
+
+16:27:19.900 [debug] Task context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+
+16:27:19.900 [debug] Task payload: %{"description" => "Analyze research data", "objective_id" => "24ecbfba-3b8b-45e5-80b8-cb3daf98f689", "required_capabilities" => ["analysis"], "task_id" => "cdf53a97-28a8-4128-9549-dc45aa555b00", "title" => "Analysis Task", "type" => "assignment"}
+
+16:27:19.903 [debug] Company configuration: %Lux.Company{id: "bcf33e0d-cf05-412e-8e91-76240c396e10", name: "Capability Test Team", mission: "Test capability-based task distribution", module: Test.Support.Companies.CapabilityTeam, ceo: %{id: "3f32559e-8134-48b1-bf28-991faab3497d", name: "Project Director", type: :ceo, agent: Test.Support.Agents.ProjectDirector, capabilities: ["delegation", "planning", "management"], goal: "Oversee project execution and team coordination", hub: nil}, signal_router: nil, agent_hub: nil, roles: [%{id: "11c73106-db30-4e99-81ec-271717110976", name: "Writer", type: :member, agent: Test.Support.Agents.Writer, capabilities: ["content_creation", "editing", "writing"], goal: "Create and edit content", hub: nil}, %{id: "5c8b2cef-3679-4fa1-b32a-7760016af088", name: "Analyst", type: :member, agent: Test.Support.Agents.Analyst, capabilities: ["reporting", "data_processing", "analysis"], goal: "Analyze data and create reports", hub: nil}, %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}], objectives: [%Lux.Company.Objective{id: "24b38042-d317-4db2-8d64-8884a8535c91", name: :multi_capability_task, description: "A project requiring multiple capabilities", success_criteria: "All required capabilities are matched and tasks are distributed optimally", input_schema: %{required: ["title", "required_capabilities"], properties: %{"required_capabilities" => %{type: "array"}, "title" => %{type: "string"}}}, steps: ["Research Phase: Gather and analyze data", "Analysis Phase: Process and analyze findings", "Documentation Phase: Create final documentation"], status: :pending, assigned_agents: [], progress: 0, started_at: nil, completed_at: nil, metadata: %{}}], metadata: %{}}
+
+16:27:19.903 [debug] Researcher role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}
+
+16:27:19.903 [debug] Test context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+
+16:27:19.903 [debug] Test signal: %Lux.Signal{id: "88ee5682-bbc0-4ac4-a51c-fb7736245ba3", payload: %{"description" => "Basic task with no special requirements", "objective_id" => "f219e83d-9941-4b82-9c24-4ffc1733ff19", "required_capabilities" => [], "task_id" => "87877b17-53b5-43fc-9daa-d5c8ef33d734", "title" => "Simple Task", "type" => "assignment"}, sender: "fc123371-47a0-42e6-8cd1-597a11ebb167", recipient: nil, timestamp: nil, topic: nil, metadata: %{}, schema_id: Lux.Schemas.Companies.TaskSignal}
+
+16:27:19.904 [info] Analyzing task: Simple Task
+
+16:27:19.904 [debug] Task context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+
+16:27:19.904 [debug] Task payload: %{"description" => "Basic task with no special requirements", "objective_id" => "f219e83d-9941-4b82-9c24-4ffc1733ff19", "required_capabilities" => [], "task_id" => "87877b17-53b5-43fc-9daa-d5c8ef33d734", "title" => "Simple Task", "type" => "assignment"}
+
+16:27:19.904 [debug] Handler response: %Lux.Signal{id: "37e20adc-cae2-41c8-a46a-3aa8f54b69e5", payload: %{"objective_id" => "f219e83d-9941-4b82-9c24-4ffc1733ff19", "result" => %{"success" => true, "used_capabilities" => []}, "status" => "completed", "task_id" => "87877b17-53b5-43fc-9daa-d5c8ef33d734", "type" => "completion"}, sender: nil, recipient: nil, timestamp: ~U[2026-08-07 21:27:19.904213Z], topic: nil, metadata: %{"agent_capabilities" => ["analysis", "data_collection", "research"]}, schema_id: Lux.Schemas.Companies.TaskSignal}
+
+16:27:19.904 [debug] Company configuration: %Lux.Company{id: "bcf33e0d-cf05-412e-8e91-76240c396e10", name: "Capability Test Team", mission: "Test capability-based task distribution", module: Test.Support.Companies.CapabilityTeam, ceo: %{id: "3f32559e-8134-48b1-bf28-991faab3497d", name: "Project Director", type: :ceo, agent: Test.Support.Agents.ProjectDirector, capabilities: ["delegation", "planning", "management"], goal: "Oversee project execution and team coordination", hub: nil}, signal_router: nil, agent_hub: nil, roles: [%{id: "11c73106-db30-4e99-81ec-271717110976", name: "Writer", type: :member, agent: Test.Support.Agents.Writer, capabilities: ["content_creation", "editing", "writing"], goal: "Create and edit content", hub: nil}, %{id: "5c8b2cef-3679-4fa1-b32a-7760016af088", name: "Analyst", type: :member, agent: Test.Support.Agents.Analyst, capabilities: ["reporting", "data_processing", "analysis"], goal: "Analyze data and create reports", hub: nil}, %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}], objectives: [%Lux.Company.Objective{id: "24b38042-d317-4db2-8d64-8884a8535c91", name: :multi_capability_task, description: "A project requiring multiple capabilities", success_criteria: "All required capabilities are matched and tasks are distributed optimally", input_schema: %{required: ["title", "required_capabilities"], properties: %{"required_capabilities" => %{type: "array"}, "title" => %{type: "string"}}}, steps: ["Research Phase: Gather and analyze data", "Analysis Phase: Process and analyze findings", "Documentation Phase: Create final documentation"], status: :pending, assigned_agents: [], progress: 0, started_at: nil, completed_at: nil, metadata: %{}}], metadata: %{}}
+
+16:27:19.904 [debug] Researcher role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}
+
+16:27:19.905 [debug] Test context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+
+16:27:19.905 [debug] Test signal: %Lux.Signal{id: "44ba804f-4917-4dea-a485-68336912d91d", payload: %{"description" => "Conduct research on testing", "objective_id" => "220e1afb-5694-40dd-adb8-85a4c52cfbef", "required_capabilities" => ["research", "analysis"], "task_id" => "8ee8b8ab-2469-487e-a14b-9b3f699888c1", "title" => "Research Task", "type" => "assignment"}, sender: "39fd98b0-1a52-47a8-9782-9d8f6afacc61", recipient: nil, timestamp: nil, topic: nil, metadata: %{}, schema_id: Lux.Schemas.Companies.TaskSignal}
+
+16:27:19.905 [info] Analyzing task: Research Task
+
+16:27:19.905 [debug] Task context: %{role: %{id: "1884a091-9f41-40fc-bf9f-70303a165895", name: "Researcher", type: :member, agent: Test.Support.Agents.Researcher, capabilities: ["analysis", "data_collection", "research"], goal: "Conduct research and data collection", hub: nil}, agent: Test.Support.Agents.Researcher, template_opts: %{llm_opts: %{model: "test-model", temperature: 0.7}}}
+
+16:27:19.905 [debug] Task payload: %{"description" => "Conduct research on testing", "objective_id" => "220e1afb-5694-40dd-adb8-85a4c52cfbef", "required_capabilities" => ["research", "analysis"], "task_id" => "8ee8b8ab-2469-487e-a14b-9b3f699888c1", "title" => "Research Task", "type" => "assignment"}
+
+16:27:19.905 [debug] Handler response: %Lux.Signal{id: "5faa8cd6-3a4e-4738-ac90-99d55c74802a", payload: %{"objective_id" => "220e1afb-5694-40dd-adb8-85a4c52cfbef", "result" => %{"success" => true, "used_capabilities" => ["research", "analysis"]}, "status" => "completed", "task_id" => "8ee8b8ab-2469-487e-a14b-9b3f699888c1", "type" => "completion"}, sender: nil, recipient: nil, timestamp: ~U[2026-08-07 21:27:19.905419Z], topic: nil, metadata: %{"agent_capabilities" => ["analysis", "data_collection", "research"]}, schema_id: Lux.Schemas.Companies.TaskSignal}
+
+16:27:20.443 [debug] Using Lux.Company.DSL in Elixir.Lux.Company.Hub.LocalTest.TestCompany
+
+16:27:20.472 [debug] Before compile hook for Elixir.Lux.Company.Hub.LocalTest.TestCompany
+
+16:27:20.472 [debug] Final company config: %Lux.Company{id: "75620429-f06b-4d85-bda0-4f6c60453ccf", name: "Test Company", mission: "Testing company functionality", module: Lux.Company.Hub.LocalTest.TestCompany, ceo: %{id: "8622b637-09c8-4237-9d9e-08dcd4b14389", name: "Test CEO", type: :ceo, agent: Test.Support.Agents.TestCEO, capabilities: ["assign_tasks", "manage_company"], goal: "Lead and manage test company operations", hub: nil}, signal_router: nil, agent_hub: nil, roles: [%{id: "195ee4c0-cf31-401b-a7b2-381e4457db8f", name: "Test Member", type: :member, agent: Test.Support.Agents.TestMember, capabilities: ["execute_tasks"], goal: "Execute test tasks effectively", hub: nil}], objectives: [], metadata: %{}}
+.................
+16:27:21.676 [debug] Using Lux.Company.DSL in Elixir.Lux.Company.DSLTest.TestCompany
+
+16:27:21.710 [debug] Before compile hook for Elixir.Lux.Company.DSLTest.TestCompany
+
+16:27:21.711 [debug] Final company config: %Lux.Company{id: "838f8a72-5ff7-4836-ba67-c6b8e19ddedb", name: "Test Company", mission: "To test all the things", module: Lux.Company.DSLTest.TestCompany, ceo: %{id: "a6470943-bf74-46de-98ca-71a9f810221f", name: "Test CEO", type: :ceo, agent: TestAgent, capabilities: ["approve", "review", "test"], goal: "Lead the testing efforts", hub: nil}, signal_router: nil, agent_hub: nil, roles: [%{id: "e88c00bf-e411-4976-8e5d-4ef6779dff6f", name: "QA Analyst", type: :member, agent: TestQA, capabilities: ["report", "analyze"], goal: "Ensure quality", hub: nil}, %{id: "a69f35e3-7d72-4589-9e7c-3d8703e534ab", name: "Test Engineer", type: :member, agent: {"test-123", :test_hub}, capabilities: ["run_tests", "write_tests"], goal: "Write and execute tests", hub: :test_hub}], objectives: [%Lux.Company.Objective{id: "4773370a-ca96-4b2d-8bf0-d8e8874328dc", name: :run_test_suite, description: "Run the complete test suite", success_criteria: "All tests pass with >90% coverage", input_schema: %{required: ["test_input"], properties: %{"test_input" => %{type: "string"}}}, steps: ["Prepare test environment", "Run unit tests", "Run integration tests", "Generate coverage report"], status: :pending, assigned_agents: [], progress: 0, started_at: nil, completed_at: nil, metadata: %{}}], metadata: %{}}
+..
+16:27:22.849 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138044846 (2s)
+.
+16:27:22.849 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138046849 (4s)
+
+16:27:22.849 [warning] Coinbase API rate limit hit (HTTP 429, attempt 3). Backoff until 1786138050849 (8s)
+.
+16:27:22.849 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138047849 (5s)
+.
+16:27:22.850 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138052849 (10s)
+....
+16:27:22.851 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043850 (1s)
+..
+16:27:22.954 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138052954 (10s)
+.
+16:27:22.956 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138047956 (5s)
+
+16:27:22.971 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043971 (1s)
+...
+16:27:22.972 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043972 (1s)
+
+16:27:22.972 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043972 (1s)
+
+16:27:22.972 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043972 (1s)
+
+16:27:22.972 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138044972 (2s)
+
+16:27:22.972 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138044972 (2s)
+
+16:27:22.972 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043972 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043972 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138044973 (2s)
+..
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+.
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+.
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043973 (1s)
+
+16:27:22.973 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138044973 (2s)
+
+16:27:22.974 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043974 (1s)
+.
+16:27:22.974 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138044974 (2s)
+
+16:27:22.974 [warning] Coinbase API rate limit hit (HTTP 429, attempt 3). Backoff until 1786138046974 (4s)
+
+16:27:22.974 [warning] Coinbase API rate limit hit (HTTP 429, attempt 4). Backoff until 1786138050974 (8s)
+
+16:27:22.974 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138052974 (10s)
+
+16:27:22.977 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043977 (1s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043983 (1s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138044983 (2s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 4). Backoff until 1786138050983 (8s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 5). Backoff until 1786138058983 (16s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 10). Backoff until 1786138554983 (512s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 7). Backoff until 1786138106983 (64s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 15). Backoff until 1786154426984 (16384s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 31). Backoff until 2859879866984 (1073741824s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 32). Backoff until 3933621690984 (2147483648s)
+.
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 6). Backoff until 1786138074983 (32s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 33). Backoff until 6081105338984 (4294967296s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 37). Backoff until 70505614778984 (68719476736s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 38). Backoff until 139225091514984 (137438953472s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 40). Backoff until 551541951930984 (549755813888s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 41). Backoff until 1101297765818984 (1099511627776s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 42). Backoff until 2200809393594984 (2199023255552s)
+.
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 43). Backoff until 4399832649146984 (4398046511104s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 44). Backoff until 8797879160250984 (8796093022208s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 46). Backoff until 35186158226874984 (35184372088832s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 49). Backoff until 281476762848698984 (281474976710656s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 9). Backoff until 1786138298983 (256s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 3). Backoff until 1786138046983 (4s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 7). Backoff until 1786138106983 (64s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 8). Backoff until 1786138170983 (128s)
+
+16:27:22.983 [warning] Coinbase API rate limit hit (HTTP 429, attempt 11). Backoff until 1786139066983 (1024s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 12). Backoff until 1786140090984 (2048s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 14). Backoff until 1786146234984 (8192s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 16). Backoff until 1786170810984 (32768s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 17). Backoff until 1786203578984 (65536s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 13). Backoff until 1786142138984 (4096s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 18). Backoff until 1786269114984 (131072s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 19). Backoff until 1786400186984 (262144s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 20). Backoff until 1786662330984 (524288s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 22). Backoff until 1788235194984 (2097152s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 23). Backoff until 1790332346984 (4194304s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 21). Backoff until 1787186618984 (1048576s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 26). Backoff until 1819692474984 (33554432s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 25). Backoff until 1802915258984 (16777216s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 24). Backoff until 1794526650984 (8388608s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 27). Backoff until 1853246906984 (67108864s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 28). Backoff until 1920355770984 (134217728s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 30). Backoff until 2323008954984 (536870912s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 36). Backoff until 36145876410984 (34359738368s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 35). Backoff until 18966007226984 (17179869184s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 39). Backoff until 276664044986984 (274877906944s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 34). Backoff until 10376072634984 (8589934592s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 29). Backoff until 2054573498984 (268435456s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 45). Backoff until 17593972182458984 (17592186044416s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 47). Backoff until 70370530315706984 (70368744177664s)
+
+16:27:22.984 [warning] Coinbase API rate limit hit (HTTP 429, attempt 48). Backoff until 140739274493370984 (140737488355328s)
+
+16:27:22.986 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043986 (1s)
+.
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 1). Backoff until 1786138043990 (1s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 2). Backoff until 1786138044990 (2s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 3). Backoff until 1786138046990 (4s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 4). Backoff until 1786138050990 (8s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 5). Backoff until 1786138058990 (16s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 6). Backoff until 1786138074990 (32s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 7). Backoff until 1786138106990 (64s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 8). Backoff until 1786138170990 (128s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 9). Backoff until 1786138298990 (256s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 10). Backoff until 1786138554990 (512s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 11). Backoff until 1786139066990 (1024s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 12). Backoff until 1786140090990 (2048s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 13). Backoff until 1786142138990 (4096s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 14). Backoff until 1786146234990 (8192s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 15). Backoff until 1786154426990 (16384s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 16). Backoff until 1786170810990 (32768s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 17). Backoff until 1786203578990 (65536s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 18). Backoff until 1786269114990 (131072s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 19). Backoff until 1786400186990 (262144s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 20). Backoff until 1786662330990 (524288s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 21). Backoff until 1787186618990 (1048576s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 22). Backoff until 1788235194990 (2097152s)
+
+16:27:22.990 [warning] Coinbase API rate limit hit (HTTP 429, attempt 23). Backoff until 1790332346990 (4194304s)
+
+16:27:22.991 [warning] Coinbase API rate limit hit (HTTP 429, attempt 24). Backoff until 1794526650990 (8388608s)
+
+16:27:22.991 [warning] Coinbase API rate limit hit (HTTP 429, attempt 25). Backoff until 1802915258991 (16777216s)
+
+16:27:22.991 [warning] Coinbase API rate limit hit (HTTP 429, attempt 26). Backoff until 1819692474991 (33554432s)
+
+16:27:22.991 [warning] Coinbase API rate limit hit (HTTP 429, attempt 27). Backoff until 1853246906991 (67108864s)
+
+16:27:22.991 [warning] Coinbase API rate limit hit (HTTP 429, attempt 28). Backoff until 1920355770991 (134217728s)
+
+16:27:22.991 [warning] Coinbase API rate limit hit (HTTP 429, attempt 29). Backoff until 2054573498991 (268435456s)
+
+16:27:22.991 [warning] Coinbase API rate limit hit (HTTP 429, attempt 30). Backoff until 2323008954991 (536870912s)
+.
+Finished in 10.0 seconds (9.8s async, 0.1s sync)
+1 doctest, 4 properties, 1388 tests, 5 failures, 1264 excluded
