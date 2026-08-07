@@ -14,7 +14,6 @@ defmodule Lux.LLM.Mira do
   require Lens
   require Logger
 
-  @endpoint "https://api.mira.network/v1/chat/completions"
 
   defmodule Config do
     @moduledoc """
@@ -136,9 +135,9 @@ defmodule Lux.LLM.Mira do
     }
   end
 
-  defp handle_response(%{body: body}, _config) when is_binary(body) do
+  defp handle_response(%{body: body}, config) when is_binary(body) do
     case Jason.decode(body) do
-      {:ok, decoded} -> handle_response(%{body: decoded}, _config)
+      {:ok, decoded} -> handle_response(%{body: decoded}, config)
       {:error, _} -> {:error, "Failed to decode response body"}
     end
   end
