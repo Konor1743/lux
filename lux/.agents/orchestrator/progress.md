@@ -1,37 +1,35 @@
-# Project Progress
+# Progress Log
 
 ## Current Status
-Last visited: 2026-08-05T22:44:25Z
+Last visited: 2026-08-09T19:29:45-05:00
 
 ## Iteration Status
-Current iteration: 2 / 32
+Current iteration: 1 / 32
 
 ## Checklist
-- [x] Create initial state files (ORIGINAL_REQUEST.md, BRIEFING.md, progress.md)
-- [x] Dispatch Explorer subagent to analyze Lux codebase, LLM existing structure, dependencies, and test suite setup
-- [x] Establish PROJECT.md and plan.md based on Explorer analysis
-- [x] Milestone 1: Implement `Lux.LLM.Provider` behaviour & concrete providers (OpenAI, Gemini, Anthropic, OpenRouter, TogetherAI)
-- [x] Milestone 2: Implement `Lux.LLM.ProviderRegistry` (dynamic registration, lookup, state management)
-- [x] Milestone 3: Implement Dynamic Router & Selection Logic (cost `:cheapest`, performance `:smartest`, capabilities)
-- [x] Milestone 4: Implement Smart Fallback Handling (transparent failover on network/429/503/5xx errors)
-- [x] Milestone 5: Implement Cost Tracking, Telemetry, and Signal Normalization
-- [x] Milestone 6: Complete ExUnit Test Suite in `test/unit/lux/llm/` and Module Documentation
-- [x] Milestone 7: Final E2E and Forensic Audit Verification (Reviewer: APPROVED, Auditor: CLEAN, Challenger: 105 tests pass)
+- [x] Create workspace state files (`ORIGINAL_REQUEST.md`, `BRIEFING.md`, `plan.md`, `progress.md`, `PROJECT.md`)
+- [x] Start recurring heartbeat cron (`task-15`)
+- [x] Phase 1: Dispatch Explorers for R1, R2, R3 codebase investigation
+- [x] Phase 1: Receive & aggregate Explorer reports
+- [x] Phase 2: Dispatch Worker to implement R1, R2, R3 fixes and tests
+- [x] Phase 2: Receive & verify Worker implementation report (32 targeted unit tests passing, 1373 total tests passing)
+- [x] Phase 3 & 4: Dispatch Reviewers, Challengers, and Forensic Auditor
+- [x] Phase 3 & 4: Receive verification gate reports (Reviewer 1 APPROVED, Reviewer 2 APPROVED, Challenger 1 VERIFIED, Challenger 2 VERIFIED, Auditor CLEAN)
+- [x] Finalize & Report completion claim to Sentinel
 
 ## Log
-- 2026-08-02T18:51:20Z: Orchestrator initialized. Created state files.
-- 2026-08-02T18:55:50Z: 3 Explorers completed research. Created PROJECT.md and plan.md.
-- 2026-08-02T18:55:57Z: Dispatched Worker 1 for Milestones 1 & 2.
-- 2026-08-03T00:20:00Z: Worker 1 finished M1 & M2 initial implementations.
-- 2026-08-05T22:30:15Z: Orchestration resumed. Starting Milestones 3-6 implementation and verification pipeline.
-- 2026-08-05T22:30:33Z: Dispatched Worker 2 (bc6b82d5-cc0b-4431-99d9-fdd862306b21) for M3-M6 implementation.
-- 2026-08-05T22:37:30Z: Worker 2 delivered handoff.md. 88 unit tests passing, 0 warnings.
-- 2026-08-05T22:37:50Z: Dispatched Reviewer 1 (b36db414-b5b6-4e95-bb83-99af704677d5), Challenger 1 (bb465110-45d6-47f3-ac64-e930e14a6281), and Forensic Auditor 1 (7414a5a4-88bf-43cc-84cd-e5862ae7fa6b).
-- 2026-08-05T22:39:11Z: Reviewer 1 delivered handoff.md: APPROVED (0 warnings, 88 unit tests pass, 1350 full suite tests pass, 100% docs).
-- 2026-08-05T22:42:26Z: Challenger 1 delivered handoff.md: 105 tests pass, 0 failures. Highlighted edge cases.
-- 2026-08-05T22:42:54Z: Dispatched Worker 3 (b0169fd8-e7dd-41d5-b6c1-76348ff2033e) for robustness hardening.
-- 2026-08-05T22:43:17Z: Forensic Auditor 1 delivered handoff.md: CLEAN verdict.
-- 2026-08-05T22:44:18Z: Worker 3 delivered handoff.md: Hardening complete. 105 unit tests pass, 0 warnings.
-- 2026-08-05T22:44:25Z: All milestones M1-M7 completed and 100% verified. Claiming Bounty #99 completion.
-
-
+- 2026-08-09T19:12:21-05:00: Initialized workspace state and plan.
+- 2026-08-09T19:12:32-05:00: Heartbeat cron scheduled (task-15).
+- 2026-08-09T19:12:53-05:00: Dispatched Explorer 1, Explorer 2, and Explorer 3.
+- 2026-08-09T19:14:46-05:00: Received Explorer 1 handoff report for R1.
+- 2026-08-09T19:15:41-05:00: Received Explorer 2 handoff report for R2.
+- 2026-08-09T19:16:10-05:00: Received Explorer 3 handoff report for R3.
+- 2026-08-09T19:16:15-05:00: Dispatched Worker 1 (`f9b5a164-ecad-4b01-95f5-f0ca54d1f150`).
+- 2026-08-09T19:25:28-05:00: Received Worker 1 handoff report (all fixes applied and 1373 tests pass).
+- 2026-08-09T19:25:35-05:00: Dispatched Reviewer 1, Reviewer 2, Challenger 1, Challenger 2, and Forensic Auditor 1.
+- 2026-08-09T19:27:30-05:00: Received Reviewer 2 report (APPROVED).
+- 2026-08-09T19:27:54-05:00: Received Reviewer 1 report (APPROVED).
+- 2026-08-09T19:27:59-05:00: Received Challenger 1 report (VERIFIED).
+- 2026-08-09T19:28:24-05:00: Received Forensic Auditor 1 report (CLEAN).
+- 2026-08-09T19:29:34-05:00: Received Challenger 2 report (VERIFIED).
+- 2026-08-09T19:29:45-05:00: All acceptance criteria met and verified. Task complete.

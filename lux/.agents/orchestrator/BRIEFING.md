@@ -1,62 +1,59 @@
-# BRIEFING — 2026-08-05T22:30:15Z
+# BRIEFING — 2026-08-09T19:29:40-05:00
 
 ## Mission
-Implement a Universal LLM Provider Abstraction Layer (`Lux.LLM.Provider`, `Lux.LLM.ProviderRegistry`, dynamic routing, smart fallback handling, cost/latency telemetry) in Elixir for Spectral-Finance/lux with complete ExUnit test suite and documentation.
+Fix 3 blocking defects in PR #99 (R1: null credential propagation in Router, R2: control option filtering in Router, R3: dynamic endpoint support in Lux.LLM.OpenAI) and ensure all acceptance criteria and ExUnit tests pass.
 
 ## 🔒 My Identity
-- Archetype: teamwork_preview_orchestrator
+- Archetype: self
 - Roles: orchestrator, user_liaison, human_reporter, successor
 - Working directory: /home/Konor1743/Operacion Dolar/lux/lux/.agents/orchestrator
-- Original parent: Sentinel
-- Original parent conversation ID: 1a31b04e-7852-4950-b96a-1ca5ea46e07c
+- Original parent: parent
+- Original parent conversation ID: 9f03c8af-aa0c-4802-91e2-35c07b9c058f
 
 ## 🔒 My Workflow
 - **Pattern**: Project Orchestration Pattern
-- **Scope document**: /home/Konor1743/Operacion Dolar/lux/lux/PROJECT.md
-1. **Decompose**: Assess codebase, establish module architecture and milestones (Provider abstraction, Registry, Router & Fallback, Cost & Telemetry, ExUnit Tests & Docs).
-2. **Dispatch & Execute**: Delegate milestones to subagents / sub-orchestrators or Explorer -> Worker -> Reviewer -> Challenger -> Auditor loop.
+- **Scope document**: /home/Konor1743/Operacion Dolar/lux/lux/.agents/orchestrator/PROJECT.md
+1. **Decompose**: Assess codebase, examine R1, R2, R3 defects and corresponding test requirements.
+2. **Dispatch & Execute**: Explorer -> Worker -> Reviewer -> Challenger -> Auditor loop.
 3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign.
 4. **Succession**: Self-succeed at 16 spawns.
 - **Work items**:
-  1. Exploration & Architecture Setup [done]
-  2. Provider Abstraction & Provider Registry [done]
-  3. Dynamic Router & Selection Logic [done]
-  4. Smart Fallback Handling [done]
-  5. Telemetry & Cost Tracking [done]
-  6. ExUnit Test Suite & Documentation [done]
-  7. Verification & E2E Testing [done]
+  1. Milestone 1: Exploration & Code Analysis (R1, R2, R3) [done]
+  2. Milestone 2: Implementation of Fixes (R1, R2, R3) & Acceptance Tests [done]
+  3. Milestone 3: Review, Stress-Test & Forensic Audit [done]
 - **Current phase**: 4
-- **Current focus**: Milestone completion report to Sentinel
+- **Current focus**: Completed & verified all milestones and acceptance criteria.
 
 ## 🔒 Key Constraints
 - NEVER write, modify, or create source code files directly as Orchestrator.
 - DO NOT CHEAT. All implementations must be genuine.
-- All code modules in `lib/lux/llm/` and test modules in `test/unit/lux/llm/`.
-- Must pass `mix compile` cleanly (no warnings) and `mix test` 100% green.
+- Maintain progress.md heartbeat.
+- Pass `mix test` 100% green.
 
 ## Current Parent
-- Conversation ID: 1a31b04e-7852-4950-b96a-1ca5ea46e07c
-- Updated: 2026-08-05T22:44:20Z
+- Conversation ID: 9f03c8af-aa0c-4802-91e2-35c07b9c058f
+- Updated: 2026-08-09T19:29:40-05:00
 
 ## Key Decisions Made
-- All milestones M1-M7 completed and verified.
+- Exploration completed (Explorers 1, 2, 3).
+- Implementation completed (Worker 1).
 - Reviewer 1 verdict: APPROVED.
-- Challenger 1 stress-tested 105 tests, 0 failures.
+- Reviewer 2 verdict: APPROVED.
+- Challenger 1 & 2 stress tests: VERIFIED (0 failures across 1373 tests).
 - Forensic Auditor 1 verdict: CLEAN.
-- Worker 3 applied final edge-case robustness hardening.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| Explorer 1 | teamwork_preview_explorer | Codebase Structure & LLM Architecture | completed | 49717860-f149-4f4c-9f86-b4ef65d78639 |
-| Explorer 2 | teamwork_preview_explorer | Provider Interface & Dynamic Routing | completed | 31315517-82ee-498c-afea-2cfc765312a6 |
-| Explorer 3 | teamwork_preview_explorer | Test Infrastructure & ExUnit Strategy | completed | 3765bd45-ff4c-4cc4-b0f2-93ff9f2ab1c6 |
-| Worker 1 | teamwork_preview_worker | Provider Abstraction & ProviderRegistry | completed | 82383645-4b49-4e07-81e5-e4d132214980 |
-| Worker 2 | teamwork_preview_worker | Dynamic Router, Fallback, Telemetry, Tests & Docs | completed | bc6b82d5-cc0b-4431-99d9-fdd862306b21 |
-| Reviewer 1 | teamwork_preview_reviewer | Code Quality & Documentation Review | completed (APPROVED) | b36db414-b5b6-4e95-bb83-99af704677d5 |
-| Challenger 1 | teamwork_preview_challenger | Dynamic Router & Fallback Stress Testing | completed | bb465110-45d6-47f3-ac64-e930e14a6281 |
-| Auditor 1 | teamwork_preview_auditor | Forensic Integrity Audit | completed (CLEAN) | 7414a5a4-88bf-43cc-84cd-e5862ae7fa6b |
-| Worker 3 | teamwork_preview_worker | Edge Case Hardening (Telemetry, Fallback, Router) | completed | b0169fd8-e7dd-41d5-b6c1-76348ff2033e |
+| Explorer 1 | teamwork_preview_explorer | R1 Null Credential Propagation | completed | 2a432657-afba-4376-8d9e-10fd55ae9190 |
+| Explorer 2 | teamwork_preview_explorer | R2 Control Option Filtering | completed | 7ba69da0-98ee-49af-b2c5-3933ab63e56d |
+| Explorer 3 | teamwork_preview_explorer | R3 Dynamic Endpoint & Test Suite | completed | 02c8a290-c8b7-4372-8cc1-e51770c9f047 |
+| Worker 1 | teamwork_preview_worker | Implementation of R1, R2, R3 Fixes & Tests | completed | f9b5a164-ecad-4b01-95f5-f0ca54d1f150 |
+| Reviewer 1 | teamwork_preview_reviewer | Code Quality & Interface Review | completed (APPROVED) | 58b92037-19af-4064-aab2-85b55bb41429 |
+| Reviewer 2 | teamwork_preview_reviewer | Test Coverage & Completeness Review | completed (APPROVED) | 52ab4da1-7ff5-4044-99cb-b84af3842782 |
+| Challenger 1 | teamwork_preview_challenger | Empirical Stress Testing | completed | f1c86b0e-061c-4398-850b-93f16fdb2f3c |
+| Challenger 2 | teamwork_preview_challenger | Adversarial Combinatorial Stress Testing | completed | ddfff781-5f81-48fe-8a73-da4015032ff9 |
+| Auditor 1 | teamwork_preview_auditor | Forensic Integrity Audit | completed (CLEAN) | a89965b8-3d43-4df3-b2ab-cdfbd9b22b20 |
 
 ## Succession Status
 - Succession required: no
@@ -66,7 +63,7 @@ Implement a Universal LLM Provider Abstraction Layer (`Lux.LLM.Provider`, `Lux.L
 - Successor: not yet spawned
 
 ## Active Timers
-- Heartbeat cron: task-15
+- Heartbeat cron: task-15 (will be cancelled upon completion)
 - Safety timer: none
 
 ## Artifact Index
@@ -74,4 +71,5 @@ Implement a Universal LLM Provider Abstraction Layer (`Lux.LLM.Provider`, `Lux.L
 - /home/Konor1743/Operacion Dolar/lux/lux/.agents/orchestrator/BRIEFING.md — Persistent briefing index
 - /home/Konor1743/Operacion Dolar/lux/lux/.agents/orchestrator/plan.md — Orchestration plan
 - /home/Konor1743/Operacion Dolar/lux/lux/.agents/orchestrator/progress.md — Liveness & status tracking
-- /home/Konor1743/Operacion Dolar/lux/lux/PROJECT.md — Global project scope and architecture
+- /home/Konor1743/Operacion Dolar/lux/lux/.agents/orchestrator/PROJECT.md — Scope document
+- /home/Konor1743/Operacion Dolar/lux/lux/.agents/orchestrator/handoff.md — Handoff report

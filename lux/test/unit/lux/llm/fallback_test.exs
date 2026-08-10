@@ -112,4 +112,54 @@ defmodule Lux.LLM.FallbackTest do
                Fallback.call("hello", [], primary: primary_spec, fallbacks: [fallback_spec])
     end
   end
+
+  describe "AC2: Fallback integration with control options" do
+    test "Fallback.call with router spec and control options does not raise KeyError on strict provider" do
+      reg_name = :"ac2_fallback_strict_#{System.unique_integer([:positive])}"
+      {:ok, _pid} = Lux.LLM.ProviderRegistry.start_link(name: reg_name, providers: [Lux.LLM.RouterTest.StrictProvider])
+
+      control_opts = [
+        primary: {Lux.LLM.Router, [registry_name: reg_name, provider_id: :strict_provider, strategy: :cheapest]},
+        fallbacks: [],
+        fallback_on_all_errors: true,
+        capabilities: [],
+        estimated_prompt_tokens: 100,
+        estimated_completion_tokens: 100
+      ]
+
+      assert {:ok, signal} = Fallback.call("hello", [], control_opts)
+      assert signal.payload.model == "strict-model"
+    end
+
+    test "Fallback.call with router spec and control options works with OpenAI provider" do
+      Req.Test.verify_on_exit!()
+
+      reg_name = :"ac2_fallback_openai_#{System.unique_integer([:positive])}"
+      {:ok, _pid} = Lux.LLM.ProviderRegistry.start_link(name: reg_name, providers: [Lux.LLM.OpenAI])
+
+      Req.Test.expect(Lux.LLM.OpenAI, fn conn ->
+        Req.Test.json(conn, %{
+          "model" => "gpt-4o",
+          "choices" => [
+            %{
+              "message" => %{"content" => ~s({"result": "fallback_openai_ok"})},
+              "finish_reason" => "stop"
+            }
+          ]
+        })
+      end)
+
+      control_opts = [
+        primary: {Lux.LLM.Router, [registry_name: reg_name, provider_id: :openai, strategy: :smartest]},
+        fallbacks: [],
+        fallback_on_all_errors: true,
+        capabilities: [:tools],
+        estimated_prompt_tokens: 500,
+        estimated_completion_tokens: 500
+      ]
+
+      assert {:ok, signal} = Fallback.call("hello", [], control_opts)
+      assert signal.payload.model == "gpt-4o"
+    end
+  end
 end

@@ -16,6 +16,18 @@ defmodule Lux.LLM.Router do
   @type tools :: Lux.LLM.Provider.tools()
   @type opts :: map() | keyword()
 
+  @control_opts [
+    :strategy,
+    :capabilities,
+    :registry_name,
+    :estimated_prompt_tokens,
+    :estimated_completion_tokens,
+    :provider_id,
+    :primary,
+    :fallbacks,
+    :fallback_on_all_errors
+  ]
+
   @doc """
   Routes an LLM call to the optimal provider/model combination and executes the request.
 
@@ -41,9 +53,10 @@ defmodule Lux.LLM.Router do
       {:ok, {provider_config, model_config}} ->
         call_opts =
           opts_map
+          |> Map.drop(@control_opts)
           |> Map.put(:model, model_config.id)
-          |> Map.put_new(:api_key, provider_config.api_key)
-          |> Map.put_new(:endpoint, provider_config.endpoint)
+          |> maybe_put_new(:api_key, provider_config.api_key)
+          |> maybe_put_new(:endpoint, provider_config.endpoint)
 
         provider_config.module.call(prompt, tools, call_opts)
 
@@ -156,4 +169,7 @@ defmodule Lux.LLM.Router do
   defp to_map(opts) when is_map(opts), do: opts
   defp to_map(opts) when is_list(opts), do: Enum.into(opts, %{})
   defp to_map(_), do: %{}
+
+  defp maybe_put_new(map, _key, nil), do: map
+  defp maybe_put_new(map, key, value), do: Map.put_new(map, key, value)
 end

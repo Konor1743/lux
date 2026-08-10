@@ -92,12 +92,52 @@ defmodule Lux.LLM.RouterTest do
     end
   end
 
+  defmodule StrictConfig do
+    defstruct [:model, :api_key, :endpoint]
+  end
+
+  defmodule StrictProvider do
+    @behaviour Lux.LLM.Provider
+
+    @impl true
+    def id, do: :strict_provider
+
+    @impl true
+    def models do
+      [
+        %ModelConfig{
+          id: "strict-model",
+          name: "Strict Model",
+          provider_id: :strict_provider,
+          cost_per_1k_prompt_tokens: 0.001,
+          cost_per_1k_completion_tokens: 0.002
+        }
+      ]
+    end
+
+    @impl true
+    def call(prompt, _tools, opts) do
+      _config = struct!(StrictConfig, opts)
+
+      payload = %{
+        content: %{"response" => "strict response for #{prompt}"},
+        model: "strict-model",
+        finish_reason: "stop",
+        tool_calls: nil,
+        tool_calls_results: nil
+      }
+
+      {:ok, Lux.Signal.new(%{schema_id: ResponseSignal, payload: payload, metadata: %{}})}
+    end
+  end
+
   setup do
     registry_name = :"router_test_registry_#{System.unique_integer([:positive])}"
     {:ok, _pid} = ProviderRegistry.start_link(name: registry_name, providers: [])
 
     ProviderRegistry.register_provider(MockProvider, registry_name: registry_name)
     ProviderRegistry.register_provider(VisionOnlyProvider, registry_name: registry_name)
+    ProviderRegistry.register_provider(StrictProvider, registry_name: registry_name)
 
     %{registry_name: registry_name}
   end
@@ -181,6 +221,90 @@ defmodule Lux.LLM.RouterTest do
       unstarted_reg = :"unstarted_registry_#{System.unique_integer([:positive])}"
       assert {:error, :registry_not_running} = Router.route("hello", [], registry_name: unstarted_reg)
       assert {:error, :registry_not_running} = Router.call("hello", [], registry_name: unstarted_reg)
+    end
+  end
+
+  describe "AC1: null credential propagation" do
+    test "preserves application-level api_key when using default provider registry with nil credentials" do
+      Req.Test.verify_on_exit!()
+
+      original_keys = Application.get_env(:lux, :api_keys, [])
+      Application.put_env(:lux, :api_keys, [openai: "test-app-level-key"])
+
+      on_exit(fn ->
+        Application.put_env(:lux, :api_keys, original_keys)
+      end)
+
+      reg_name = :"ac1_registry_#{System.unique_integer([:positive])}"
+      {:ok, _pid} = ProviderRegistry.start_link(name: reg_name, providers: [Lux.LLM.OpenAI])
+
+      Req.Test.expect(Lux.LLM.OpenAI, fn conn ->
+        auth_header = Plug.Conn.get_req_header(conn, "authorization")
+        assert ["Bearer test-app-level-key"] = auth_header
+
+        Req.Test.json(conn, %{
+          "model" => "gpt-4o",
+          "choices" => [
+            %{
+              "message" => %{"content" => ~s({"result": "ok"})},
+              "finish_reason" => "stop"
+            }
+          ]
+        })
+      end)
+
+      assert {:ok, %Signal{}} = Router.call("hello", [], registry_name: reg_name, provider_id: :openai)
+    end
+  end
+
+  describe "AC2: filter control options in Router" do
+    test "passes control options to Router.call with strict provider without raising KeyError", %{registry_name: reg} do
+      control_opts = [
+        strategy: :cheapest,
+        capabilities: [],
+        registry_name: reg,
+        estimated_prompt_tokens: 1000,
+        estimated_completion_tokens: 500,
+        provider_id: :strict_provider,
+        primary: nil,
+        fallbacks: [],
+        fallback_on_all_errors: false
+      ]
+
+      assert {:ok, %Signal{} = signal} = Router.call("hello", [], control_opts)
+      assert signal.payload.model == "strict-model"
+      assert signal.payload.content["response"] == "strict response for hello"
+    end
+
+    test "passes control options to Router.call with OpenAI provider without raising KeyError" do
+      Req.Test.verify_on_exit!()
+
+      reg_name = :"ac2_openai_router_test_#{System.unique_integer([:positive])}"
+      {:ok, _pid} = ProviderRegistry.start_link(name: reg_name, providers: [Lux.LLM.OpenAI])
+
+      Req.Test.expect(Lux.LLM.OpenAI, fn conn ->
+        Req.Test.json(conn, %{
+          "model" => "gpt-4o",
+          "choices" => [
+            %{
+              "message" => %{"content" => ~s({"result": "ok"})},
+              "finish_reason" => "stop"
+            }
+          ]
+        })
+      end)
+
+      control_opts = [
+        strategy: :smartest,
+        capabilities: [:tools],
+        registry_name: reg_name,
+        estimated_prompt_tokens: 2000,
+        estimated_completion_tokens: 1000,
+        provider_id: :openai,
+        fallback_on_all_errors: true
+      ]
+
+      assert {:ok, %Signal{}} = Router.call("hello", [], control_opts)
     end
   end
 end

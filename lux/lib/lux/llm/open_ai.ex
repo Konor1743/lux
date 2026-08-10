@@ -131,7 +131,7 @@ defmodule Lux.LLM.OpenAI do
       |> maybe_add_response_format(config)
 
     [
-      url: @endpoint,
+      url: Lux.Config.resolve(config.endpoint || @endpoint),
       json: body,
       headers: [
         {"Authorization", "Bearer #{Lux.Config.resolve(config.api_key)}"},
