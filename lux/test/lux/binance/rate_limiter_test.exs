@@ -43,12 +43,23 @@ defmodule Lux.Binance.RateLimiterTest do
     end
   end
 
-  describe "attach/1 Req middleware" do
-    test "attaches pre and post steps to Req request" do
-      req = Req.new()
-      attached = RateLimiter.attach(req)
-
-      refute req == attached
+  describe "RateLimiter durability" do
+    test "maintains ETS state even if the caller process dies (owner-restart resilience)" do
+      # Spawn a temporary process to act as the "caller"
+      task = Task.async(fn ->
+        headers = [{"retry-after", "20"}, {"x-mbx-used-weight-1m", "2000"}]
+        RateLimiter.record_rate_limit(headers, 429, :spot)
+        RateLimiter.check_rate_limit(:spot)
+      end)
+      
+      # Wait for the caller to finish and die
+      assert {:error, {:rate_limited, wait_ms}} = Task.await(task)
+      assert wait_ms > 0
+      
+      # Since the RateLimiter GenServer (and not the caller) owns the ETS table,
+      # the backoff should still be active for the main test process.
+      assert {:error, {:rate_limited, new_wait}} = RateLimiter.check_rate_limit(:spot)
+      assert new_wait > 0
     end
   end
 end

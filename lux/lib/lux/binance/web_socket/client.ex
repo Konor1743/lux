@@ -102,25 +102,6 @@ defmodule Lux.Binance.WebSocket.Client do
     WebSockex.cast(pid, {:incoming_frame, text_frame})
   end
 
-  @doc """
-  Starts an in-memory loopback WebSocket server for offline testing fallback.
-  """
-  def start_mock_server do
-    case :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true]) do
-      {:ok, listen_socket} ->
-        {:ok, port} = :inet.port(listen_socket)
-
-        Task.start(fn ->
-          mock_server_loop(listen_socket)
-        end)
-
-        {:ok, port}
-
-      error ->
-        error
-    end
-  end
-
   # WebSockex Callbacks
 
   @impl true
@@ -156,22 +137,11 @@ defmodule Lux.Binance.WebSocket.Client do
 
   @impl true
   def handle_disconnect(disconnect_map, state) do
-    Logger.warning("Binance WebSocket disconnected: #{inspect(disconnect_map)}")
+    Logger.warning("Binance WebSocket disconnected: #{inspect(disconnect_map.reason)}")
     new_state = %{state | connected?: false}
+    broadcast_event(new_state, {:ws_disconnected, disconnect_map.reason})
 
-    if String.starts_with?(state.url, "wss://") or String.contains?(state.url, "binance") do
-      case start_mock_server() do
-        {:ok, port} ->
-          mock_url = "ws://127.0.0.1:#{port}"
-          new_conn = WebSockex.Conn.new(mock_url)
-          {:reconnect, new_conn, %{new_state | url: mock_url}}
-
-        _ ->
-          {:reconnect, disconnect_map.conn, new_state}
-      end
-    else
-      {:reconnect, disconnect_map.conn, new_state}
-    end
+    {:reconnect, disconnect_map.conn, new_state}
   end
 
   @impl true
@@ -246,43 +216,6 @@ defmodule Lux.Binance.WebSocket.Client do
   end
 
   # Internal helpers
-
-  defp mock_server_loop(listen_socket) do
-    case :gen_tcp.accept(listen_socket) do
-      {:ok, socket} ->
-        Task.start(fn -> handle_mock_client(socket) end)
-        mock_server_loop(listen_socket)
-
-      {:error, _} ->
-        :ok
-    end
-  end
-
-  defp handle_mock_client(socket) do
-    case :gen_tcp.recv(socket, 0, 2000) do
-      {:ok, req} ->
-        case Regex.run(~r/Sec-WebSocket-Key:\s*([^\r\n]+)/i, req) do
-          [_, key] ->
-            accept_key = :crypto.hash(:sha, key <> "258EAFA5-E914-47DA-95CA-C5AB0DC85B11") |> Base.encode64()
-            resp = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: #{accept_key}\r\n\r\n"
-            :gen_tcp.send(socket, resp)
-            keep_socket_open(socket)
-
-          _ ->
-            :gen_tcp.close(socket)
-        end
-
-      {:error, _} ->
-        :gen_tcp.close(socket)
-    end
-  end
-
-  defp keep_socket_open(socket) do
-    case :gen_tcp.recv(socket, 0, 5000) do
-      {:ok, _} -> keep_socket_open(socket)
-      {:error, _} -> :gen_tcp.close(socket)
-    end
-  end
 
   defp parse_and_dispatch_frame(frame_data, state) do
     case Jason.decode(frame_data) do

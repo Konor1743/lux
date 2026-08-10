@@ -20,7 +20,8 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
     :testnet?,
     :timer_ref,
     :subscriber,
-    :req_options
+    :req_options,
+    :ws_pid
   ]
 
   @doc """
@@ -84,6 +85,8 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
       {:ok, listen_key} ->
         timer_ref = schedule_keep_alive()
 
+        {:ok, ws_pid} = start_ws_client(market_type, listen_key, testnet?, subscriber)
+
         state = %__MODULE__{
           market_type: market_type,
           listen_key: listen_key,
@@ -91,7 +94,8 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
           testnet?: testnet?,
           timer_ref: timer_ref,
           subscriber: subscriber,
-          req_options: req_options
+          req_options: req_options,
+          ws_pid: ws_pid
         }
 
         send(subscriber, {:listen_key_created, listen_key})
@@ -119,8 +123,15 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
           case create_listen_key(state.market_type, opts) do
             {:ok, new_listen_key} ->
               Logger.info("Recreated Binance UserDataStream listenKey: #{new_listen_key}")
+              
+              if state.ws_pid != nil and Process.alive?(state.ws_pid) do
+                Process.exit(state.ws_pid, :normal)
+              end
+              
+              {:ok, new_ws_pid} = start_ws_client(state.market_type, new_listen_key, state.testnet?, state.subscriber)
+              
               send(state.subscriber, {:listen_key_created, new_listen_key})
-              %{state | listen_key: new_listen_key}
+              %{state | listen_key: new_listen_key, ws_pid: new_ws_pid}
 
             {:error, err} ->
               Logger.error("Failed to recreate Binance UserDataStream listenKey: #{inspect(err)}")
@@ -134,6 +145,10 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
 
   @impl true
   def terminate(_reason, state) do
+    if state.ws_pid != nil and Process.alive?(state.ws_pid) do
+      Process.exit(state.ws_pid, :normal)
+    end
+    
     if state.listen_key do
       opts = [api_key: state.api_key, testnet: state.testnet?, req_options: state.req_options]
       close_listen_key(state.market_type, state.listen_key, opts)
@@ -143,10 +158,27 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
 
   # Private helpers
 
-  defp get_user_data_path(:futures), do: "/fapi/v1/userDataStream"
+  defp get_user_data_path(:futures), do: "/fapi/v1/listenKey"
   defp get_user_data_path(_), do: "/api/v3/userDataStream"
 
   defp schedule_keep_alive do
     Process.send_after(self(), :keep_alive, @keep_alive_interval)
+  end
+
+  defp start_ws_client(market_type, listen_key, testnet?, subscriber) do
+    base_url =
+      if market_type == :futures do
+        if testnet?, do: "wss://stream.binancefuture.com/ws", else: "wss://fstream.binance.com/ws"
+      else
+        if testnet?, do: "wss://testnet.binance.vision/ws", else: "wss://stream.binance.com:9443/ws"
+      end
+
+    url = "#{base_url}/#{listen_key}"
+    Lux.Binance.WebSocket.Client.start_link(
+      url: url,
+      market_type: market_type,
+      testnet: testnet?,
+      subscriber: subscriber
+    )
   end
 end

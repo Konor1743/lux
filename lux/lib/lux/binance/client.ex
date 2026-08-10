@@ -79,10 +79,6 @@ defmodule Lux.Binance.Client do
   # Private helpers
 
   defp do_request(method, market_type, base_url, path, params, headers, opts) do
-    custom_opts = [
-      binance_market_type: market_type
-    ]
-
     base_req_opts =
       [
         base_url: base_url,
@@ -91,19 +87,33 @@ defmodule Lux.Binance.Client do
       |> Keyword.merge(Application.get_env(:lux, :req_options, []))
       |> Keyword.merge(Keyword.get(opts, :req_options, []))
 
-    req =
-      Req.new(base_req_opts)
-      |> Req.Request.register_options([:binance_market_type, :binance_auto_backoff, :retry_delay_multiplier])
-      |> Req.Request.merge_options(custom_opts)
-      |> RateLimiter.attach()
+    req = Req.new(base_req_opts)
 
     req_call_opts = build_req_call_opts(method, path, params)
+    max_retries = Keyword.get(opts, :max_retries, 5)
 
-    case Req.request(req, req_call_opts) do
-      {:ok, %{status: status, body: body}} when status in 200..299 ->
+    execute_with_retry(req, req_call_opts, market_type, max_retries)
+  end
+
+  defp execute_with_retry(req, call_opts, market_type, retries) do
+    RateLimiter.wait_if_rate_limited(market_type)
+
+    case Req.request(req, call_opts) do
+      {:ok, %{status: status, headers: headers, body: body}} when status in 200..299 ->
+        RateLimiter.record_rate_limit(headers, status, market_type)
         {:ok, body}
 
-      {:ok, %{status: status, body: body}} ->
+      {:ok, %{status: status, headers: headers, body: body}} when status in [429, 418] ->
+        RateLimiter.record_rate_limit(headers, status, market_type)
+
+        if retries > 0 do
+          execute_with_retry(req, call_opts, market_type, retries - 1)
+        else
+          {:error, %{status: status, body: body}}
+        end
+
+      {:ok, %{status: status, headers: headers, body: body}} ->
+        RateLimiter.record_rate_limit(headers, status, market_type)
         {:error, %{status: status, body: body}}
 
       {:error, %Req.TransportError{reason: reason}} ->

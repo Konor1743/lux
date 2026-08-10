@@ -7,9 +7,59 @@ defmodule Lux.Binance.WebSocketTest do
     Req.Test.verify_on_exit!()
   end
 
+  def start_mock_server do
+    case :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true]) do
+      {:ok, listen_socket} ->
+        {:ok, port} = :inet.port(listen_socket)
+
+        Task.start(fn ->
+          mock_server_loop(listen_socket)
+        end)
+
+        {:ok, port}
+      error -> error
+    end
+  end
+
+  defp mock_server_loop(listen_socket) do
+    case :gen_tcp.accept(listen_socket) do
+      {:ok, socket} ->
+        Task.start(fn -> handle_mock_client(socket) end)
+        mock_server_loop(listen_socket)
+      _ -> :ok
+    end
+  end
+
+  defp handle_mock_client(socket) do
+    case :gen_tcp.recv(socket, 0, 2000) do
+      {:ok, req} ->
+        case Regex.run(~r/Sec-WebSocket-Key:\s*([^\r\n]+)/i, req) do
+          [_, key] ->
+            accept_key = :crypto.hash(:sha, key <> "258EAFA5-E914-47DA-95CA-C5AB0DC85B11") |> Base.encode64()
+            resp = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: #{accept_key}\r\n\r\n"
+            :gen_tcp.send(socket, resp)
+            keep_socket_open(socket)
+          _ -> :gen_tcp.close(socket)
+        end
+      _ -> :gen_tcp.close(socket)
+    end
+  end
+
+  defp keep_socket_open(socket) do
+    case :gen_tcp.recv(socket, 0, 5000) do
+      {:ok, _} -> keep_socket_open(socket)
+      _ -> :gen_tcp.close(socket)
+    end
+  end
+
   describe "WebSocket.Client" do
-    test "starts client and handles subscriptions and stream events" do
-      {:ok, pid} = Client.start_link(subscriber: self(), streams: ["btcusdt@trade"])
+    setup do
+      {:ok, port} = start_mock_server()
+      %{mock_url: "ws://127.0.0.1:#{port}"}
+    end
+
+    test "starts client and handles subscriptions and stream events", %{mock_url: mock_url} do
+      {:ok, pid} = Client.start_link(subscriber: self(), streams: ["btcusdt@trade"], url: mock_url)
 
       assert_receive {:ws_subscribed, %{"method" => "SUBSCRIBE"}}, 1000
 
@@ -32,8 +82,8 @@ defmodule Lux.Binance.WebSocketTest do
       assert_receive {:signal, %Lux.Signal{payload: %{"p" => "95000.00"}}}, 3000
     end
 
-    test "handles corrupted JSON frame without process termination" do
-      {:ok, pid} = Client.start_link(subscriber: self())
+    test "handles corrupted JSON frame without process termination", %{mock_url: mock_url} do
+      {:ok, pid} = Client.start_link(subscriber: self(), url: mock_url)
       Client.handle_incoming_frame(pid, "INVALID_RAW_JSON{{{")
 
       assert Process.alive?(pid)

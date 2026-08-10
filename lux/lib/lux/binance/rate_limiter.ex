@@ -102,49 +102,27 @@ defmodule Lux.Binance.RateLimiter do
   end
 
   @doc """
-  Attaches rate limiting middleware steps to a `Req.Request`.
+  Blocks the current process until the rate limit backoff expires.
   """
-  @spec attach(Req.Request.t()) :: Req.Request.t()
-  def attach(%Req.Request{} = request) do
-    request
-    |> Req.Request.register_options([:binance_market_type, :binance_auto_backoff, :retry_delay_multiplier])
-    |> Req.Request.append_request_steps(binance_rate_limit_check: &pre_request_step/1)
-    |> Req.Request.append_response_steps(binance_rate_limit_record: &post_response_step/1)
-  end
+  def wait_if_rate_limited(market_type \\ :spot) do
+    now = System.system_time(:millisecond)
+    backoff_until = get_backoff_until(market_type)
+    wait_ms = backoff_until - now
 
-  # Middleware steps
-
-  defp pre_request_step(%Req.Request{} = request) do
-    market_type = request.options[:binance_market_type] || :spot
-    auto_backoff = request.options[:binance_auto_backoff] != false
-
-    case check_rate_limit(market_type) do
-      :ok ->
-        request
-
-      {:error, {:rate_limited, wait_ms}} ->
-        if auto_backoff and wait_ms > 0 do
-          delay_mult = request.options[:retry_delay_multiplier] || 1.0
-          actual_sleep = round(wait_ms * delay_mult)
-          if actual_sleep > 0 do
-            Process.sleep(actual_sleep)
-          end
-          request
-        else
-          resp = %Req.Response{
-            status: 429,
-            body: %{"code" => -1003, "msg" => "Rate limit backoff active", "wait_ms" => wait_ms}
-          }
-
-          Req.Request.halt(request, resp)
-        end
+    if wait_ms > 0 do
+      Process.sleep(wait_ms)
+      # Check again in case it was updated while sleeping
+      wait_if_rate_limited(market_type)
+    else
+      :ok
     end
   end
 
-  defp post_response_step({request, response}) do
-    market_type = request.options[:binance_market_type] || :spot
-    record_response(response.headers, response.status, market_type)
-    {request, response}
+  @doc """
+  Records a 429/418 response to set the global backoff.
+  """
+  def record_rate_limit(headers, status_code, market_type \\ :spot) do
+    record_response(headers, status_code, market_type)
   end
 
   # GenServer Callbacks

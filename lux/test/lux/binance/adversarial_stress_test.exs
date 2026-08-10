@@ -23,13 +23,71 @@ defmodule Lux.Binance.AdversarialStressTest do
     |> Req.Test.json(body)
   end
 
+  def start_mock_server do
+    case :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true]) do
+      {:ok, listen_socket} ->
+        {:ok, port} = :inet.port(listen_socket)
+
+        Task.start(fn ->
+          mock_server_loop(listen_socket)
+        end)
+
+        {:ok, port}
+
+      error ->
+        error
+    end
+  end
+
+  defp mock_server_loop(listen_socket) do
+    case :gen_tcp.accept(listen_socket) do
+      {:ok, socket} ->
+        Task.start(fn -> handle_mock_client(socket) end)
+        mock_server_loop(listen_socket)
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
+  defp handle_mock_client(socket) do
+    case :gen_tcp.recv(socket, 0, 2000) do
+      {:ok, req} ->
+        case Regex.run(~r/Sec-WebSocket-Key:\s*([^\r\n]+)/i, req) do
+          [_, key] ->
+            accept_key = :crypto.hash(:sha, key <> "258EAFA5-E914-47DA-95CA-C5AB0DC85B11") |> Base.encode64()
+            resp = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: #{accept_key}\r\n\r\n"
+            :gen_tcp.send(socket, resp)
+            keep_socket_open(socket)
+
+          _ ->
+            :gen_tcp.close(socket)
+        end
+
+      {:error, _} ->
+        :gen_tcp.close(socket)
+    end
+  end
+
+  defp keep_socket_open(socket) do
+    case :gen_tcp.recv(socket, 0, 5000) do
+      {:ok, _} -> keep_socket_open(socket)
+      {:error, _} -> :gen_tcp.close(socket)
+    end
+  end
+
   # ===================================================================
   # SECTION 1: WEBSOCKET STREAM AUTO-RECONNECTION & EVENT HANDLING
   # ===================================================================
 
   describe "WebSocket.Client Event Handling & Malformed Input Resilience" do
-    test "processes valid market event frames and emits signal, ws_event, and event tuples" do
-      {:ok, pid} = WSClient.start_link(subscriber: self(), streams: ["btcusdt@trade"])
+    setup do
+      {:ok, port} = start_mock_server()
+      %{mock_url: "ws://127.0.0.1:#{port}"}
+    end
+
+    test "processes valid market event frames and emits signal, ws_event, and event tuples", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), streams: ["btcusdt@trade"], url: mock_url)
 
       assert_receive {:ws_subscribed, %{"method" => "SUBSCRIBE", "params" => ["btcusdt@trade"]}}, 1000
 
@@ -54,16 +112,16 @@ defmodule Lux.Binance.AdversarialStressTest do
       assert Process.alive?(pid)
     end
 
-    test "handles corrupted JSON without crashing GenServer process" do
-      {:ok, pid} = WSClient.start_link(subscriber: self())
+    test "handles corrupted JSON without crashing GenServer process", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), url: mock_url)
       WSClient.handle_incoming_frame(pid, "{invalid_json: true, missing_quotes: hello")
 
       assert Process.alive?(pid)
       refute_receive {:ws_event, _}, 200
     end
 
-    test "handles non-map JSON values (strings, arrays, booleans, nulls) safely" do
-      {:ok, pid} = WSClient.start_link(subscriber: self())
+    test "handles non-map JSON values (strings, arrays, booleans, nulls) safely", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), url: mock_url)
 
       WSClient.handle_incoming_frame(pid, Jason.encode!("just a string"))
       assert_receive {:ws_frame, "just a string"}, 1000
@@ -80,16 +138,16 @@ defmodule Lux.Binance.AdversarialStressTest do
       assert Process.alive?(pid)
     end
 
-    test "handles binary/non-UTF8 malformed frame payload without crashing" do
-      {:ok, pid} = WSClient.start_link(subscriber: self())
+    test "handles binary/non-UTF8 malformed frame payload without crashing", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), url: mock_url)
       send(pid, {:incoming_frame, <<255, 255, 255, 0, 128>>})
 
       Process.sleep(50)
       assert Process.alive?(pid)
     end
 
-    test "handles Binance WebSocket server ping frame and responds with ws_pong" do
-      {:ok, pid} = WSClient.start_link(subscriber: self())
+    test "handles Binance WebSocket server ping frame and responds with ws_pong", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), url: mock_url)
 
       ping_frame = Jason.encode!(%{"ping" => 1672515782})
       WSClient.handle_incoming_frame(pid, ping_frame)
@@ -105,8 +163,8 @@ defmodule Lux.Binance.AdversarialStressTest do
       assert Process.alive?(pid)
     end
 
-    test "handles subscription and unsubscription lifecycle with stream list updates" do
-      {:ok, pid} = WSClient.start_link(subscriber: self())
+    test "handles subscription and unsubscription lifecycle with stream list updates", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), url: mock_url)
 
       assert :ok == WSClient.subscribe(pid, ["btcusdt@depth5", "ethusdt@kline_1m"])
       assert_receive {:ws_subscribed, %{"method" => "SUBSCRIBE", "params" => ["btcusdt@depth5", "ethusdt@kline_1m"]}}, 1000
@@ -117,8 +175,8 @@ defmodule Lux.Binance.AdversarialStressTest do
       assert Process.alive?(pid)
     end
 
-    test "tests stream re-subscription on re-connect trigger message" do
-      {:ok, pid} = WSClient.start_link(subscriber: self(), streams: ["btcusdt@trade", "solusdt@ticker"])
+    test "tests stream re-subscription on re-connect trigger message", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), streams: ["btcusdt@trade", "solusdt@ticker"], url: mock_url)
       assert_receive {:ws_subscribed, %{"method" => "SUBSCRIBE"}}, 1000
 
       send(pid, :send_subscription_frame)
@@ -126,8 +184,8 @@ defmodule Lux.Binance.AdversarialStressTest do
       assert Enum.sort(params) == ["btcusdt@trade", "solusdt@ticker"]
     end
 
-    test "handles unknown GenServer info messages without crash" do
-      {:ok, pid} = WSClient.start_link(subscriber: self())
+    test "handles unknown GenServer info messages without crash", %{mock_url: mock_url} do
+      {:ok, pid} = WSClient.start_link(subscriber: self(), url: mock_url)
       send(pid, :unknown_event_type)
       send(pid, {:disconnect, :normal})
       send(pid, {:tcp_closed, :socket})
@@ -174,7 +232,7 @@ defmodule Lux.Binance.AdversarialStressTest do
     test "Futures listenKey creation, keep-alive, and close HTTP calls" do
       Req.Test.expect(Lux.Binance.AdversarialStressTest, fn conn ->
         assert conn.method == "POST"
-        assert conn.request_path == "/fapi/v1/userDataStream"
+        assert conn.request_path == "/fapi/v1/listenKey"
         Req.Test.json(conn, %{"listenKey" => "futures_listen_key_xyz789"})
       end)
 
@@ -183,7 +241,7 @@ defmodule Lux.Binance.AdversarialStressTest do
 
       Req.Test.expect(Lux.Binance.AdversarialStressTest, fn conn ->
         assert conn.method == "PUT"
-        assert conn.request_path == "/fapi/v1/userDataStream"
+        assert conn.request_path == "/fapi/v1/listenKey"
         assert conn.query_string =~ "listenKey=futures_listen_key_xyz789"
         Req.Test.json(conn, %{})
       end)
@@ -192,7 +250,7 @@ defmodule Lux.Binance.AdversarialStressTest do
 
       Req.Test.expect(Lux.Binance.AdversarialStressTest, fn conn ->
         assert conn.method == "DELETE"
-        assert conn.request_path == "/fapi/v1/userDataStream"
+        assert conn.request_path == "/fapi/v1/listenKey"
         assert conn.query_string =~ "listenKey=futures_listen_key_xyz789"
         Req.Test.json(conn, %{})
       end)
