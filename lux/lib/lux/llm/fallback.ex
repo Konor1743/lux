@@ -154,7 +154,7 @@ defmodule Lux.LLM.Fallback do
     merged = Map.merge(to_map(global_opts), to_map(spec_opts))
 
     if Code.ensure_loaded?(module) and function_exported?(module, :call, 3) do
-      module.call(prompt, tools, merged)
+      module.call(prompt, tools, Router.build_call_opts(merged))
     else
       resolve_and_call_provider(module, prompt, tools, merged)
     end
@@ -162,15 +162,15 @@ defmodule Lux.LLM.Fallback do
 
   defp invoke_spec(module, prompt, tools, global_opts) when is_atom(module) do
     if Code.ensure_loaded?(module) and function_exported?(module, :call, 3) do
-      module.call(prompt, tools, global_opts)
+      module.call(prompt, tools, Router.build_call_opts(global_opts))
     else
       resolve_and_call_provider(module, prompt, tools, global_opts)
     end
   end
 
   defp invoke_spec(%ProviderConfig{} = config, prompt, tools, global_opts) do
-    merged = Map.merge(to_map(global_opts), %{api_key: config.api_key, endpoint: config.endpoint})
-    config.module.call(prompt, tools, merged)
+    call_opts = Router.build_call_opts(global_opts, config)
+    config.module.call(prompt, tools, call_opts)
   end
 
   defp resolve_and_call_provider(provider_id, prompt, tools, opts) when is_atom(provider_id) do
@@ -178,8 +178,8 @@ defmodule Lux.LLM.Fallback do
 
     case ProviderRegistry.get_provider(provider_id, registry_name: reg) do
       {:ok, %ProviderConfig{} = config} ->
-        merged = Map.merge(opts, %{api_key: config.api_key, endpoint: config.endpoint})
-        config.module.call(prompt, tools, merged)
+        call_opts = Router.build_call_opts(opts, config)
+        config.module.call(prompt, tools, call_opts)
 
       {:error, _} ->
         # Try fallback mapping for standard atom provider IDs
@@ -194,7 +194,7 @@ defmodule Lux.LLM.Fallback do
           end
 
         if function_exported?(module, :call, 3) do
-          module.call(prompt, tools, opts)
+          module.call(prompt, tools, Router.build_call_opts(opts))
         else
           {:error, {:unknown_provider, provider_id}}
         end

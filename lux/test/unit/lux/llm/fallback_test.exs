@@ -162,4 +162,47 @@ defmodule Lux.LLM.FallbackTest do
       assert signal.payload.model == "gpt-4o"
     end
   end
+
+  describe "AC3: Documented direct-provider fallback integration" do
+    test "Fallback.call with atom provider ID filters control options and preserves credentials" do
+      reg_name = :"ac3_fallback_atom_#{System.unique_integer([:positive])}"
+
+      config = %Lux.LLM.ProviderConfig{
+        id: :strict_provider,
+        module: Lux.LLM.RouterTest.StrictProvider,
+        api_key: nil
+      }
+      {:ok, _pid} = Lux.LLM.ProviderRegistry.start_link(name: reg_name, providers: [config])
+
+      control_opts = [
+        primary: :strict_provider,
+        fallbacks: [],
+        fallback_on_all_errors: true,
+        registry_name: reg_name,
+        capabilities: [],
+        api_key: "app-configured-key"
+      ]
+
+      assert {:ok, signal} = Fallback.call("hello", [], control_opts)
+      assert signal.payload.model == "strict-model"
+    end
+
+    test "Fallback.call with %ProviderConfig{} spec filters control options and preserves credentials" do
+      config = %Lux.LLM.ProviderConfig{
+        id: :strict_provider,
+        module: Lux.LLM.RouterTest.StrictProvider,
+        api_key: nil
+      }
+
+      control_opts = [
+        primary: config,
+        fallbacks: [],
+        fallback_on_all_errors: true,
+        api_key: "app-configured-key"
+      ]
+
+      assert {:ok, signal} = Fallback.call("hello", [], control_opts)
+      assert signal.payload.model == "strict-model"
+    end
+  end
 end

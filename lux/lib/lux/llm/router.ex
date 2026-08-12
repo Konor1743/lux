@@ -53,10 +53,8 @@ defmodule Lux.LLM.Router do
       {:ok, {provider_config, model_config}} ->
         call_opts =
           opts_map
-          |> Map.drop(@control_opts)
+          |> build_call_opts(provider_config)
           |> Map.put(:model, model_config.id)
-          |> maybe_put_new(:api_key, provider_config.api_key)
-          |> maybe_put_new(:endpoint, provider_config.endpoint)
 
         provider_config.module.call(prompt, tools, call_opts)
 
@@ -139,6 +137,25 @@ defmodule Lux.LLM.Router do
     prompt_cost = (prompt_tokens / 1000.0) * model.cost_per_1k_prompt_tokens
     completion_cost = (completion_tokens / 1000.0) * model.cost_per_1k_completion_tokens
     prompt_cost + completion_cost
+  end
+
+  @doc """
+  Prepares options for a provider call by filtering control options and safely merging config credentials.
+  """
+  @spec build_call_opts(opts(), ProviderConfig.t() | nil) :: map()
+  def build_call_opts(opts, provider_config \\ nil) do
+    opts_map = to_map(opts)
+    clean_opts = Map.drop(opts_map, @control_opts)
+
+    case provider_config do
+      %ProviderConfig{} = config ->
+        clean_opts
+        |> maybe_put_new(:api_key, config.api_key)
+        |> maybe_put_new(:endpoint, config.endpoint)
+
+      _ ->
+        clean_opts
+    end
   end
 
   # Selection algorithms
