@@ -110,5 +110,36 @@ defmodule Lux.Binance.WebSocketTest do
 
       assert {:ok, %{}} = UserDataStream.keep_alive_listen_key(:spot, "mock_listen_key_123", opts)
     end
+
+    test "creates listenKey for futures and connects to private socket" do
+      {:ok, port} = start_mock_server()
+      mock_url = "ws://127.0.0.1:#{port}"
+
+      plug_fn = fn conn ->
+        assert conn.request_path == "/fapi/v1/listenKey"
+        case conn.method do
+          "POST" -> Req.Test.json(conn, %{"listenKey" => "mock_futures_listen_key_456"})
+          "DELETE" -> Req.Test.json(conn, %{})
+          "PUT" -> Req.Test.json(conn, %{})
+        end
+      end
+
+      opts = [
+        req_options: [plug: plug_fn],
+        market_type: :futures,
+        api_key: "dummy_key",
+        ws_base_url: mock_url,
+        subscriber: self()
+      ]
+
+      assert {:ok, pid} = UserDataStream.start_link(opts)
+
+      assert_receive {:listen_key_created, "mock_futures_listen_key_456"}, 1000
+
+      state = :sys.get_state(pid)
+      assert Process.alive?(state.ws_pid)
+      assert state.listen_key == "mock_futures_listen_key_456"
+      assert state.market_type == :futures
+    end
   end
 end

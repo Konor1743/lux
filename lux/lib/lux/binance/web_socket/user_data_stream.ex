@@ -80,12 +80,13 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
     testnet? = Keyword.get(opts, :testnet, Keyword.get(opts, :testnet?, false))
     subscriber = opts[:subscriber] || self()
     req_options = opts[:req_options] || []
+    ws_base_url = opts[:ws_base_url]
 
     case create_listen_key(market_type, opts) do
       {:ok, listen_key} ->
         timer_ref = schedule_keep_alive()
 
-        {:ok, ws_pid} = start_ws_client(market_type, listen_key, testnet?, subscriber)
+        {:ok, ws_pid} = start_ws_client(market_type, listen_key, testnet?, subscriber, ws_base_url)
 
         state = %__MODULE__{
           market_type: market_type,
@@ -128,7 +129,7 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
                 Process.exit(state.ws_pid, :normal)
               end
               
-              {:ok, new_ws_pid} = start_ws_client(state.market_type, new_listen_key, state.testnet?, state.subscriber)
+              {:ok, new_ws_pid} = start_ws_client(state.market_type, new_listen_key, state.testnet?, state.subscriber, opts[:ws_base_url])
               
               send(state.subscriber, {:listen_key_created, new_listen_key})
               %{state | listen_key: new_listen_key, ws_pid: new_ws_pid}
@@ -165,8 +166,8 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
     Process.send_after(self(), :keep_alive, @keep_alive_interval)
   end
 
-  defp start_ws_client(market_type, listen_key, testnet?, subscriber) do
-    base_url =
+  defp start_ws_client(market_type, listen_key, testnet?, subscriber, ws_base_url) do
+    base_url = ws_base_url ||
       if market_type == :futures do
         if testnet?, do: "wss://stream.binancefuture.com/ws", else: "wss://fstream.binance.com/ws"
       else

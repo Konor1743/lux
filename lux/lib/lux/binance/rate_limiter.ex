@@ -76,7 +76,19 @@ defmodule Lux.Binance.RateLimiter do
   @spec get_used_weight(atom()) :: integer()
   def get_used_weight(market_type \\ :spot) do
     key = weight_key(market_type)
-    get_ets_value(key, 0)
+    case get_ets_value(key, {0, 0}) do
+      {weight, timestamp} ->
+        now = System.system_time(:millisecond)
+        if now - timestamp > 60_000 do
+          0
+        else
+          weight
+        end
+      weight when is_integer(weight) ->
+        weight
+      _ ->
+        0
+    end
   end
 
   @doc """
@@ -93,8 +105,8 @@ defmodule Lux.Binance.RateLimiter do
   """
   def reset do
     if ets_exists?() do
-      :ets.insert(@table, {:spot_weight, 0})
-      :ets.insert(@table, {:futures_weight, 0})
+      :ets.insert(@table, {:spot_weight, {0, 0}})
+      :ets.insert(@table, {:futures_weight, {0, 0}})
       :ets.insert(@table, {:spot_backoff_until, 0})
       :ets.insert(@table, {:futures_backoff_until, 0})
     end
@@ -109,12 +121,35 @@ defmodule Lux.Binance.RateLimiter do
     backoff_until = get_backoff_until(market_type)
     wait_ms = backoff_until - now
 
-    if wait_ms > 0 do
-      Process.sleep(wait_ms)
-      # Check again in case it was updated while sleeping
+    weight_wait_ms = check_weight_limit(market_type)
+    total_wait_ms = max(wait_ms, weight_wait_ms)
+
+    if total_wait_ms > 0 do
+      if weight_wait_ms > wait_ms do
+        Logger.warning("Binance #{market_type} API weight limit approached. Preemptively backing off for #{weight_wait_ms}ms.")
+      end
+      Process.sleep(total_wait_ms)
       wait_if_rate_limited(market_type)
     else
       :ok
+    end
+  end
+
+  defp check_weight_limit(market_type) do
+    now = System.system_time(:millisecond)
+    key = weight_key(market_type)
+    threshold = if market_type == :futures, do: 2300, else: 5900
+    
+    case get_ets_value(key, {0, 0}) do
+      {weight, timestamp} when weight >= threshold ->
+        elapsed = now - timestamp
+        if elapsed < 60_000 do
+          60_000 - elapsed
+        else
+          0
+        end
+      _ ->
+        0
     end
   end
 
@@ -138,8 +173,8 @@ defmodule Lux.Binance.RateLimiter do
   defp create_table_if_not_exists do
     unless ets_exists?() do
       :ets.new(@table, [:set, :public, :named_table, read_concurrency: true, write_concurrency: true])
-      :ets.insert(@table, {:spot_weight, 0})
-      :ets.insert(@table, {:futures_weight, 0})
+      :ets.insert(@table, {:spot_weight, {0, 0}})
+      :ets.insert(@table, {:futures_weight, {0, 0}})
       :ets.insert(@table, {:spot_backoff_until, 0})
       :ets.insert(@table, {:futures_backoff_until, 0})
     end
@@ -166,7 +201,8 @@ defmodule Lux.Binance.RateLimiter do
 
   defp set_used_weight(market_type, weight) do
     create_table_if_not_exists()
-    :ets.insert(@table, {weight_key(market_type), weight})
+    now = System.system_time(:millisecond)
+    :ets.insert(@table, {weight_key(market_type), {weight, now}})
   end
 
   defp weight_key(:futures), do: :futures_weight
