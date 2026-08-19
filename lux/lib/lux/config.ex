@@ -128,6 +128,60 @@ defmodule Lux.Config do
     |> Keyword.get(:wallet_address, "")
   end
 
+  @doc """
+  Gets the YouTube Client ID from configuration.
+  Raises if the key is not configured.
+  """
+  @spec youtube_client_id() :: api_key()
+  def youtube_client_id do
+    get_required_key(:api_keys, :youtube_client_id)
+  end
+
+  @doc """
+  Gets the YouTube Client Secret from configuration.
+  Raises if the key is not configured.
+  """
+  @spec youtube_client_secret() :: api_key()
+  def youtube_client_secret do
+    get_required_key(:api_keys, :youtube_client_secret)
+  end
+
+  @doc """
+  Gets the YouTube Redirect URI from configuration.
+  Returns default if not configured.
+  """
+  @spec youtube_redirect_uri() :: String.t()
+  def youtube_redirect_uri do
+    get_optional_key(:api_keys, :youtube_redirect_uri) || "http://localhost:4000/oauth/callback"
+  end
+
+  @doc """
+  Gets the YouTube API Key from configuration.
+  Raises if the key is not configured.
+  """
+  @spec youtube_api_key() :: api_key()
+  def youtube_api_key do
+    get_required_key(:api_keys, :youtube_api_key)
+  end
+
+  @doc """
+  Gets the YouTube OAuth Access Token from configuration.
+  Returns nil if not configured.
+  """
+  @spec youtube_access_token() :: api_key() | nil
+  def youtube_access_token do
+    get_optional_key(:api_keys, :youtube_access_token)
+  end
+
+  @doc """
+  Gets the YouTube OAuth Refresh Token from configuration.
+  Returns nil if not configured.
+  """
+  @spec youtube_refresh_token() :: api_key() | nil
+  def youtube_refresh_token do
+    get_optional_key(:api_keys, :youtube_refresh_token)
+  end
+
   @doc false
   defp get_required_key(group, key) do
     :lux
@@ -136,6 +190,14 @@ defmodule Lux.Config do
     |> case do
       nil -> raise "#{key} is not configured in :#{group}!"
       value -> value
+    end
+  end
+
+  @doc false
+  defp get_optional_key(group, key) do
+    case Application.fetch_env(:lux, group) do
+      {:ok, config} when is_list(config) -> Keyword.get(config, key)
+      _ -> nil
     end
   end
 end
