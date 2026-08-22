@@ -9,11 +9,11 @@ defmodule Lux.Binance.IntegrationTest do
   describe "Public REST API Integration" do
     test "hits Spot testnet/public endpoint successfully" do
       # Ping endpoint doesn't require authentication
-      assert {:ok, %{}} = Client.request(:get, :spot, "/api/v3/ping")
+      assert {:ok, %{}} = Client.request(:get, :spot, "/api/v3/ping", %{}, testnet: true)
     end
 
     test "hits Futures testnet/public endpoint successfully" do
-      assert {:ok, %{}} = Client.request(:get, :futures, "/fapi/v1/ping")
+      assert {:ok, %{}} = Client.request(:get, :futures, "/fapi/v1/ping", %{}, testnet: true)
     end
     
     test "fetches spot exchange info" do

@@ -7,13 +7,13 @@ defmodule Lux.Binance.WebSocketTest do
     Req.Test.verify_on_exit!()
   end
 
-  def start_mock_server do
+  def start_mock_server(test_pid \\ nil) do
     case :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true]) do
       {:ok, listen_socket} ->
         {:ok, port} = :inet.port(listen_socket)
 
         Task.start(fn ->
-          mock_server_loop(listen_socket)
+          mock_server_loop(listen_socket, test_pid)
         end)
 
         {:ok, port}
@@ -21,23 +21,35 @@ defmodule Lux.Binance.WebSocketTest do
     end
   end
 
-  defp mock_server_loop(listen_socket) do
+  defp mock_server_loop(listen_socket, test_pid) do
     case :gen_tcp.accept(listen_socket) do
       {:ok, socket} ->
-        Task.start(fn -> handle_mock_client(socket) end)
-        mock_server_loop(listen_socket)
+        Task.start(fn -> handle_mock_client(socket, test_pid) end)
+        mock_server_loop(listen_socket, test_pid)
       _ -> :ok
     end
   end
 
-  defp handle_mock_client(socket) do
+  defp handle_mock_client(socket, test_pid) do
     case :gen_tcp.recv(socket, 0, 2000) do
       {:ok, req} ->
+        if test_pid do
+          case Regex.run(~r/GET\s+([^\s]+)\s+HTTP/i, req) do
+            [_, path] -> send(test_pid, {:mock_server_connected, path})
+            _ -> :ok
+          end
+        end
+
         case Regex.run(~r/Sec-WebSocket-Key:\s*([^\r\n]+)/i, req) do
           [_, key] ->
             accept_key = :crypto.hash(:sha, key <> "258EAFA5-E914-47DA-95CA-C5AB0DC85B11") |> Base.encode64()
             resp = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: #{accept_key}\r\n\r\n"
             :gen_tcp.send(socket, resp)
+            
+            # Send a synthetic frame to prove the connection received data
+            frame = <<129, 21, 123, 34, 101, 34, 58, 34, 112, 114, 105, 118, 97, 116, 101, 95, 101, 118, 101, 110, 116, 34, 125>>
+            :gen_tcp.send(socket, frame)
+            
             keep_socket_open(socket)
           _ -> :gen_tcp.close(socket)
         end
@@ -112,7 +124,7 @@ defmodule Lux.Binance.WebSocketTest do
     end
 
     test "creates listenKey for futures and connects to private socket" do
-      {:ok, port} = start_mock_server()
+      {:ok, port} = start_mock_server(self())
       mock_url = "ws://127.0.0.1:#{port}"
 
       plug_fn = fn conn ->
@@ -135,11 +147,37 @@ defmodule Lux.Binance.WebSocketTest do
       assert {:ok, pid} = UserDataStream.start_link(opts)
 
       assert_receive {:listen_key_created, "mock_futures_listen_key_456"}, 1000
+      
+      # Assert the mock server received the correct path with listenKey
+      assert_receive {:mock_server_connected, "/mock_futures_listen_key_456"}, 1000
+      
+      # Assert the synthetic private frame is received
+      assert_receive {:ws_event, %{"e" => "private_event"}}, 1000
 
       state = :sys.get_state(pid)
       assert Process.alive?(state.ws_pid)
       assert state.listen_key == "mock_futures_listen_key_456"
       assert state.market_type == :futures
+      
+      # Test keep-alive failure triggers reconnection
+      plug_fn_fail = fn conn ->
+        assert conn.request_path == "/fapi/v1/listenKey"
+        case conn.method do
+          "PUT" ->
+            conn
+            |> Plug.Conn.put_resp_content_type("application/json")
+            |> Plug.Conn.send_resp(400, Jason.encode!(%{"code" => -1125, "msg" => "This listenKey does not exist."}))
+          "POST" ->
+            Req.Test.json(conn, %{"listenKey" => "mock_reconnected_key_789"})
+        end
+      end
+      
+      :sys.replace_state(pid, fn state -> %{state | req_options: [plug: plug_fn_fail]} end)
+      send(pid, :keep_alive)
+      
+      assert_receive {:listen_key_created, "mock_reconnected_key_789"}, 1000
+      assert_receive {:mock_server_connected, "/mock_reconnected_key_789"}, 1000
+      assert_receive {:ws_event, %{"e" => "private_event"}}, 1000
     end
   end
 end

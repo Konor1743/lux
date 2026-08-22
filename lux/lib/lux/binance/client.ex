@@ -26,7 +26,7 @@ defmodule Lux.Binance.Client do
   @type method :: :get | :post | :put | :delete
 
   @spot_mainnet "https://api.binance.com"
-  @spot_testnet "https://testnet.binancevision.com"
+  @spot_testnet "https://testnet.binance.vision/api"
   @futures_mainnet "https://fapi.binance.com"
   @futures_testnet "https://testnet.binancefuture.com"
 
@@ -55,15 +55,10 @@ defmodule Lux.Binance.Client do
       signed? and (is_nil(secret_key) or secret_key == "") ->
         {:error, :missing_secret_key}
 
-      signed? ->
-        recv_window = Keyword.get(opts, :recv_window, 5000)
-        signed_params = Auth.sign_params(params, secret_key, recv_window)
-        headers = Auth.headers(api_key)
-        do_request(method, market_type, base_url, path, signed_params, headers, opts)
-
       true ->
+        recv_window = Keyword.get(opts, :recv_window, 5000)
         headers = Auth.headers(api_key)
-        do_request(method, market_type, base_url, path, params, headers, opts)
+        do_request(method, market_type, base_url, path, params, headers, opts, signed?, secret_key, recv_window)
     end
   end
 
@@ -78,7 +73,7 @@ defmodule Lux.Binance.Client do
 
   # Private helpers
 
-  defp do_request(method, market_type, base_url, path, params, headers, opts) do
+  defp do_request(method, market_type, base_url, path, params, headers, opts, signed?, secret_key, recv_window) do
     base_req_opts =
       [
         base_url: base_url,
@@ -88,15 +83,22 @@ defmodule Lux.Binance.Client do
       |> Keyword.merge(Keyword.get(opts, :req_options, []))
 
     req = Req.new(base_req_opts)
-
-    req_call_opts = build_req_call_opts(method, path, params)
     max_retries = Keyword.get(opts, :max_retries, 5)
 
-    execute_with_retry(req, req_call_opts, market_type, max_retries)
+    execute_with_retry(req, method, path, params, market_type, max_retries, signed?, secret_key, recv_window)
   end
 
-  defp execute_with_retry(req, call_opts, market_type, retries) do
+  defp execute_with_retry(req, method, path, params, market_type, retries, signed?, secret_key, recv_window) do
     RateLimiter.wait_if_rate_limited(market_type)
+
+    final_params =
+      if signed? do
+        Auth.sign_params(params, secret_key, recv_window)
+      else
+        params
+      end
+
+    call_opts = build_req_call_opts(method, path, final_params)
 
     case Req.request(req, call_opts) do
       {:ok, %{status: status, headers: headers, body: body}} when status in 200..299 ->
@@ -107,7 +109,7 @@ defmodule Lux.Binance.Client do
         RateLimiter.record_rate_limit(headers, status, market_type)
 
         if retries > 0 do
-          execute_with_retry(req, call_opts, market_type, retries - 1)
+          execute_with_retry(req, method, path, params, market_type, retries - 1, signed?, secret_key, recv_window)
         else
           {:error, %{status: status, body: body}}
         end

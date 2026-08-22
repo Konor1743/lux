@@ -21,7 +21,8 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
     :timer_ref,
     :subscriber,
     :req_options,
-    :ws_pid
+    :ws_pid,
+    :ws_base_url
   ]
 
   @doc """
@@ -96,7 +97,8 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
           timer_ref: timer_ref,
           subscriber: subscriber,
           req_options: req_options,
-          ws_pid: ws_pid
+          ws_pid: ws_pid,
+          ws_base_url: ws_base_url
         }
 
         send(subscriber, {:listen_key_created, listen_key})
@@ -129,7 +131,7 @@ defmodule Lux.Binance.WebSocket.UserDataStream do
                 Process.exit(state.ws_pid, :normal)
               end
               
-              {:ok, new_ws_pid} = start_ws_client(state.market_type, new_listen_key, state.testnet?, state.subscriber, opts[:ws_base_url])
+              {:ok, new_ws_pid} = start_ws_client(state.market_type, new_listen_key, state.testnet?, state.subscriber, state.ws_base_url)
               
               send(state.subscriber, {:listen_key_created, new_listen_key})
               %{state | listen_key: new_listen_key, ws_pid: new_ws_pid}

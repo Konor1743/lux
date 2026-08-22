@@ -9,7 +9,7 @@ defmodule Lux.Binance.ClientTest do
   describe "get_base_url/2" do
     test "returns correct mainnet and testnet URLs" do
       assert Client.get_base_url(:spot, false) == "https://api.binance.com"
-      assert Client.get_base_url(:spot, true) == "https://testnet.binancevision.com"
+      assert Client.get_base_url(:spot, true) == "https://testnet.binance.vision/api"
       assert Client.get_base_url(:futures, false) == "https://fapi.binance.com"
       assert Client.get_base_url(:futures, true) == "https://testnet.binancefuture.com"
     end
