@@ -545,6 +545,10 @@ defmodule Lux.Telegram.Types do
     end
 
     def from_map(_), do: nil
+
+    @spec to_map(t() | nil) :: map() | nil
+    def to_map(nil), do: nil
+    def to_map(%__MODULE__{} = update), do: Lux.Telegram.Types.to_map(update)
   end
 
   @doc """

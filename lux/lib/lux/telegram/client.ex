@@ -481,62 +481,174 @@ defmodule Lux.Telegram.Client do
   end
 
   # Messaging API Helpers
-  defdelegate send_message(chat_id, text, opts), to: Lux.Telegram.Messaging
-  defdelegate send_message(chat_id, text), to: Lux.Telegram.Messaging
-  defdelegate edit_message_text(chat_id, message_id, text, opts), to: Lux.Telegram.Messaging
-  defdelegate edit_message_text(chat_id, message_id, text), to: Lux.Telegram.Messaging
-  defdelegate delete_message(chat_id, message_id, opts), to: Lux.Telegram.Messaging
-  defdelegate delete_message(chat_id, message_id), to: Lux.Telegram.Messaging
-  defdelegate copy_message(chat_id, from_chat_id, message_id, opts), to: Lux.Telegram.Messaging
-  defdelegate copy_message(chat_id, from_chat_id, message_id), to: Lux.Telegram.Messaging
-  defdelegate forward_message(chat_id, from_chat_id, message_id, opts), to: Lux.Telegram.Messaging
-  defdelegate forward_message(chat_id, from_chat_id, message_id), to: Lux.Telegram.Messaging
-
   def send_message(%__MODULE__{} = client, chat_id, text, opts) do
     Lux.Telegram.Messaging.send_message(chat_id, text, merge_client_opts(client, opts))
   end
+
+  def send_message(%__MODULE__{} = client, chat_id, text) do
+    Lux.Telegram.Messaging.send_message(chat_id, text, merge_client_opts(client, %{}))
+  end
+
+  def send_message(chat_id, text, opts) do
+    Lux.Telegram.Messaging.send_message(chat_id, text, opts)
+  end
+
+  defdelegate send_message(chat_id, text), to: Lux.Telegram.Messaging
 
   def edit_message_text(%__MODULE__{} = client, chat_id, message_id, text, opts) do
     Lux.Telegram.Messaging.edit_message_text(chat_id, message_id, text, merge_client_opts(client, opts))
   end
 
+  def edit_message_text(%__MODULE__{} = client, chat_id, message_id, text) do
+    Lux.Telegram.Messaging.edit_message_text(chat_id, message_id, text, merge_client_opts(client, %{}))
+  end
+
+  def edit_message_text(chat_id, message_id, text, opts) do
+    Lux.Telegram.Messaging.edit_message_text(chat_id, message_id, text, opts)
+  end
+
+  defdelegate edit_message_text(chat_id, message_id, text), to: Lux.Telegram.Messaging
+
   def delete_message(%__MODULE__{} = client, chat_id, message_id, opts) do
     Lux.Telegram.Messaging.delete_message(chat_id, message_id, merge_client_opts(client, opts))
   end
+
+  def delete_message(%__MODULE__{} = client, chat_id, message_id) do
+    Lux.Telegram.Messaging.delete_message(chat_id, message_id, merge_client_opts(client, %{}))
+  end
+
+  def delete_message(chat_id, message_id, opts) do
+    Lux.Telegram.Messaging.delete_message(chat_id, message_id, opts)
+  end
+
+  defdelegate delete_message(chat_id, message_id), to: Lux.Telegram.Messaging
 
   def copy_message(%__MODULE__{} = client, chat_id, from_chat_id, message_id, opts) do
     Lux.Telegram.Messaging.copy_message(chat_id, from_chat_id, message_id, merge_client_opts(client, opts))
   end
 
+  def copy_message(%__MODULE__{} = client, chat_id, from_chat_id, message_id) do
+    Lux.Telegram.Messaging.copy_message(chat_id, from_chat_id, message_id, merge_client_opts(client, %{}))
+  end
+
+  def copy_message(chat_id, from_chat_id, message_id, opts) do
+    Lux.Telegram.Messaging.copy_message(chat_id, from_chat_id, message_id, opts)
+  end
+
+  defdelegate copy_message(chat_id, from_chat_id, message_id), to: Lux.Telegram.Messaging
+
   def forward_message(%__MODULE__{} = client, chat_id, from_chat_id, message_id, opts) do
     Lux.Telegram.Messaging.forward_message(chat_id, from_chat_id, message_id, merge_client_opts(client, opts))
   end
 
-  # Media API Helpers
-  defdelegate send_photo(chat_id, photo, opts), to: Lux.Telegram.Media
-  defdelegate send_photo(chat_id, photo), to: Lux.Telegram.Media
-  defdelegate send_document(chat_id, document, opts), to: Lux.Telegram.Media
-  defdelegate send_document(chat_id, document), to: Lux.Telegram.Media
-  defdelegate send_voice(chat_id, voice, opts), to: Lux.Telegram.Media
-  defdelegate send_voice(chat_id, voice), to: Lux.Telegram.Media
-  defdelegate get_file(file_id, opts), to: Lux.Telegram.Media
-  defdelegate get_file(file_id), to: Lux.Telegram.Media
+  def forward_message(%__MODULE__{} = client, chat_id, from_chat_id, message_id) do
+    Lux.Telegram.Messaging.forward_message(chat_id, from_chat_id, message_id, merge_client_opts(client, %{}))
+  end
 
+  def forward_message(chat_id, from_chat_id, message_id, opts) do
+    Lux.Telegram.Messaging.forward_message(chat_id, from_chat_id, message_id, opts)
+  end
+
+  defdelegate forward_message(chat_id, from_chat_id, message_id), to: Lux.Telegram.Messaging
+
+  # Media API Helpers
   def send_photo(%__MODULE__{} = client, chat_id, photo, opts) do
     Lux.Telegram.Media.send_photo(chat_id, photo, merge_client_opts(client, opts))
   end
+
+  def send_photo(%__MODULE__{} = client, chat_id, photo) do
+    Lux.Telegram.Media.send_photo(chat_id, photo, merge_client_opts(client, %{}))
+  end
+
+  def send_photo(chat_id, photo, opts) do
+    Lux.Telegram.Media.send_photo(chat_id, photo, opts)
+  end
+
+  defdelegate send_photo(chat_id, photo), to: Lux.Telegram.Media
 
   def send_document(%__MODULE__{} = client, chat_id, document, opts) do
     Lux.Telegram.Media.send_document(chat_id, document, merge_client_opts(client, opts))
   end
 
+  def send_document(%__MODULE__{} = client, chat_id, document) do
+    Lux.Telegram.Media.send_document(chat_id, document, merge_client_opts(client, %{}))
+  end
+
+  def send_document(chat_id, document, opts) do
+    Lux.Telegram.Media.send_document(chat_id, document, opts)
+  end
+
+  defdelegate send_document(chat_id, document), to: Lux.Telegram.Media
+
   def send_voice(%__MODULE__{} = client, chat_id, voice, opts) do
     Lux.Telegram.Media.send_voice(chat_id, voice, merge_client_opts(client, opts))
   end
 
+  def send_voice(%__MODULE__{} = client, chat_id, voice) do
+    Lux.Telegram.Media.send_voice(chat_id, voice, merge_client_opts(client, %{}))
+  end
+
+  def send_voice(chat_id, voice, opts) do
+    Lux.Telegram.Media.send_voice(chat_id, voice, opts)
+  end
+
+  defdelegate send_voice(chat_id, voice), to: Lux.Telegram.Media
+
+  def send_audio(%__MODULE__{} = client, chat_id, audio, opts) do
+    Lux.Telegram.Media.send_audio(chat_id, audio, merge_client_opts(client, opts))
+  end
+
+  def send_audio(%__MODULE__{} = client, chat_id, audio) do
+    Lux.Telegram.Media.send_audio(chat_id, audio, merge_client_opts(client, %{}))
+  end
+
+  def send_audio(chat_id, audio, opts) do
+    Lux.Telegram.Media.send_audio(chat_id, audio, opts)
+  end
+
+  defdelegate send_audio(chat_id, audio), to: Lux.Telegram.Media
+
+  def send_video(%__MODULE__{} = client, chat_id, video, opts) do
+    Lux.Telegram.Media.send_video(chat_id, video, merge_client_opts(client, opts))
+  end
+
+  def send_video(%__MODULE__{} = client, chat_id, video) do
+    Lux.Telegram.Media.send_video(chat_id, video, merge_client_opts(client, %{}))
+  end
+
+  def send_video(chat_id, video, opts) do
+    Lux.Telegram.Media.send_video(chat_id, video, opts)
+  end
+
+  defdelegate send_video(chat_id, video), to: Lux.Telegram.Media
+
   def get_file(%__MODULE__{} = client, file_id, opts) do
     Lux.Telegram.Media.get_file(file_id, merge_client_opts(client, opts))
   end
+
+  def get_file(%__MODULE__{} = client, file_id) do
+    Lux.Telegram.Media.get_file(file_id, merge_client_opts(client, %{}))
+  end
+
+  def get_file(file_id, opts) do
+    Lux.Telegram.Media.get_file(file_id, opts)
+  end
+
+  defdelegate get_file(file_id), to: Lux.Telegram.Media
+
+  def download_file(%__MODULE__{} = client, file_path_or_id, opts) do
+    Lux.Telegram.Media.download_file(file_path_or_id, merge_client_opts(client, opts))
+  end
+
+  def download_file(%__MODULE__{} = client, file_path_or_id) do
+    Lux.Telegram.Media.download_file(file_path_or_id, merge_client_opts(client, %{}))
+  end
+
+  def download_file(file_path_or_id, opts) do
+    Lux.Telegram.Media.download_file(file_path_or_id, opts)
+  end
+
+  defdelegate download_file(file_path_or_id), to: Lux.Telegram.Media
 
   defp extract_client_and_opts(%__MODULE__{} = client), do: {client, []}
 

@@ -60,45 +60,105 @@ defmodule Lux.Telegram.Media do
   If given a file_id (no slashes or dots), it calls get_file first to resolve file_path.
   """
   def download_file(file_path_or_id, opts \\ %{}) do
-    opts_list = if is_list(opts), do: opts, else: Map.to_list(opts)
+    with {:ok, file_path} <- resolve_file_path(file_path_or_id, opts) do
+      opts_list = if is_list(opts), do: opts, else: Map.to_list(opts)
+      opts_map = Map.new(opts_list)
 
-    file_path =
-      if String.contains?(file_path_or_id, "/") or String.contains?(file_path_or_id, ".") do
-        file_path_or_id
-      else
-        get_file_opts = Keyword.delete(opts_list, :plug)
-        case get_file(file_path_or_id, get_file_opts) do
-          {:ok, %{"result" => %{"file_path" => path}}} -> path
-          _ -> file_path_or_id
+      token = Lux.Integrations.Telegram.fetch_token(opts)
+      url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+      non_req_keys = [
+        :token,
+        :base_url,
+        :req_options,
+        :sleep_fun,
+        :max_retries,
+        :max_rate_limit_retries,
+        :base_backoff,
+        :max_backoff,
+        :backoff_factor
+      ]
+
+      config_opts =
+        Application.get_env(:lux, :req_options, [])
+        |> Keyword.merge(Application.get_env(:lux, Lux.Telegram.Client, []))
+        |> Keyword.merge(Application.get_env(:lux, Lux.Integrations.Telegram.Client, []))
+
+      client_req_opts = Keyword.drop(opts_map[:req_options] || [], non_req_keys)
+
+      req_opts =
+        [method: :get, url: url, retry: false]
+        |> Keyword.merge(Keyword.drop(config_opts, non_req_keys))
+        |> Keyword.merge(client_req_opts)
+        |> Keyword.merge(Keyword.drop(opts_list, non_req_keys))
+        |> maybe_add_plug(opts_map[:plug])
+
+      middleware_opts =
+        config_opts
+        |> Keyword.merge(opts_list)
+
+      try do
+        req_opts
+        |> Req.new()
+        |> Lux.Telegram.Middleware.RateLimit.attach(middleware_opts)
+        |> Lux.Telegram.Middleware.Retry.attach(middleware_opts)
+        |> Req.request()
+        |> case do
+          {:ok, %{status: status, body: body}} when status in 200..299 ->
+            {:ok, body}
+
+          {:ok, %{status: 401}} ->
+            {:error, :invalid_token}
+
+          {:ok, %{status: 429, body: %{"parameters" => %{"retry_after" => _}} = body}} ->
+            {:error, {429, body}}
+
+          {:ok, %{status: 429, body: %{parameters: %{retry_after: _}} = body}} ->
+            {:error, {429, body}}
+
+          {:ok, %{status: status, body: %{"description" => message}}} ->
+            {:error, {status, message}}
+
+          {:ok, %{status: status, body: body}} ->
+            {:error, {status, body}}
+
+          {:error, error} ->
+            {:error, error}
         end
+      rescue
+        e -> {:error, e}
       end
-
-    token = Lux.Integrations.Telegram.fetch_token(opts)
-    url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
-
-    req_opts = [method: :get, url: url, retry: false]
-    req_opts = if plug = opts_list[:plug], do: Keyword.put(req_opts, :plug, plug), else: req_opts
-
-    config_opts =
-      Application.get_env(:lux, :req_options, [])
-      |> Keyword.merge(Application.get_env(:lux, Lux.Integrations.Telegram.Client, []))
-
-    req =
-      config_opts
-      |> Keyword.merge(req_opts)
-      |> Req.new()
-
-    case Req.request(req) do
-      {:ok, %{status: status, body: body}} when status in 200..299 ->
-        {:ok, body}
-
-      {:ok, %{status: status, body: body}} ->
-        {:error, {status, body}}
-
-      {:error, error} ->
-        {:error, error}
     end
   end
+
+  defp resolve_file_path(file_path_or_id, opts) do
+    if String.contains?(file_path_or_id, "/") or String.contains?(file_path_or_id, ".") do
+      {:ok, file_path_or_id}
+    else
+      case get_file(file_path_or_id, opts) do
+        {:ok, %{"result" => %{"file_path" => path}}} when is_binary(path) ->
+          {:ok, path}
+
+        {:ok, %{result: %{file_path: path}}} when is_binary(path) ->
+          {:ok, path}
+
+        {:ok, %{"result" => %{file_path: path}}} when is_binary(path) ->
+          {:ok, path}
+
+        {:ok, %{result: %{"file_path" => path}}} when is_binary(path) ->
+          {:ok, path}
+
+        {:ok, other} ->
+          {:error, {:unexpected_response, other}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp maybe_add_plug(req_opts, nil), do: req_opts
+  defp maybe_add_plug(req_opts, plug), do: Keyword.put(req_opts, :plug, plug)
 
   defp send_media(chat_id, param_name, media_arg, endpoint_path, opts) do
     {client_opts, api_opts} = split_opts(opts)

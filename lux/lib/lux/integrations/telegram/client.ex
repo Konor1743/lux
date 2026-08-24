@@ -118,6 +118,20 @@ defmodule Lux.Integrations.Telegram.Client do
     end
   end
 
+  @doc """
+  Downloads a file from Telegram by file_path or file_id.
+  """
+  def download_file(file_path_or_id, opts \\ %{}) do
+    Lux.Telegram.Media.download_file(file_path_or_id, opts)
+  end
+
+  @doc """
+  Gets file info for a given file_id.
+  """
+  def get_file(file_id, opts \\ %{}) do
+    Lux.Telegram.Media.get_file(file_id, opts)
+  end
+
   defp maybe_add_plug(options, nil), do: options
   defp maybe_add_plug(options, plug), do: Keyword.put(options, :plug, plug)
 
