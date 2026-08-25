@@ -88,9 +88,21 @@ defmodule Lux.Signals.TelegramUpdate do
 
   def to_atom_keys(map) when is_map(map) do
     Map.new(map, fn
-      {k, v} when is_binary(k) -> {String.to_atom(k), to_atom_keys(v)}
-      {k, v} when is_atom(k) -> {k, to_atom_keys(v)}
-      {k, v} -> {k, to_atom_keys(v)}
+      {k, v} when is_binary(k) ->
+        safe_key =
+          try do
+            String.to_existing_atom(k)
+          rescue
+            ArgumentError -> k
+          end
+
+        {safe_key, to_atom_keys(v)}
+
+      {k, v} when is_atom(k) ->
+        {k, to_atom_keys(v)}
+
+      {k, v} ->
+        {k, to_atom_keys(v)}
     end)
   end
 

@@ -176,6 +176,38 @@ defmodule Lux.Signals.TelegramUpdateTest do
       }
     end
 
+    test "to_atom_keys/1 safely preserves unknown binary keys without exhausting atom table" do
+      # Generate a random non-existing key that does not exist in atom table
+      random_untrusted_key = "untrusted_dynamic_key_#{:erlang.unique_integer([:positive])}"
+
+      untrusted_payload = %{
+        "update_id" => 123,
+        random_untrusted_key => "arbitrary_value",
+        "nested" => %{
+          "nested_untrusted_#{:erlang.unique_integer([:positive])}" => "nested_val",
+          "chat" => %{"id" => 789}
+        },
+        "list_items" => [
+          %{"update_id" => 456, "dynamic_key_#{:erlang.unique_integer([:positive])}" => 999}
+        ]
+      }
+
+      result = TelegramUpdate.to_atom_keys(untrusted_payload)
+
+      # Known keys should be converted to atoms
+      assert result[:update_id] == 123
+      assert result[:nested][:chat][:id] == 789
+
+      # Unknown keys should remain strings
+      assert Map.has_key?(result, random_untrusted_key)
+      assert result[random_untrusted_key] == "arbitrary_value"
+
+      # Verify list items
+      [first_item] = result[:list_items]
+      assert first_item[:update_id] == 456
+      assert Enum.any?(Map.keys(first_item), &is_binary/1)
+    end
+
     test "update_id/1 extracts update_id from signal, struct, and map" do
       {:ok, signal} = TelegramUpdate.new(%{update_id: 42})
       assert TelegramUpdate.update_id(signal) == 42

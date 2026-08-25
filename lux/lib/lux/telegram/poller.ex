@@ -287,30 +287,41 @@ defmodule Lux.Telegram.Poller do
   defp process_updates(updates, current_offset, handler) do
     Enum.reduce(updates, {[], current_offset}, fn
       update, {signals_acc, max_offset} when is_map(update) ->
-        raw_id = update["update_id"] || update[:update_id] || 0
+        raw_id = update["update_id"] || update[:update_id]
+
         update_id =
           cond do
-            is_integer(raw_id) -> raw_id
+            is_integer(raw_id) and raw_id >= 0 -> raw_id
             is_binary(raw_id) ->
               case Integer.parse(raw_id) do
-                {num, _} -> num
-                :error -> 0
+                {num, _} when num >= 0 -> num
+                _ -> nil
               end
-            true -> 0
-          end
-        next_offset = max(max_offset, update_id + 1)
-
-        signal =
-          case Lux.Signals.TelegramUpdate.new(update) do
-            {:ok, sig} -> sig
-            sig -> sig
+            true -> nil
           end
 
-        dispatch_signal(signal, handler)
-        {[signal | signals_acc], next_offset}
+        next_offset =
+          if update_id do
+            max(max_offset, update_id + 1)
+          else
+            max_offset
+          end
 
-      _invalid, acc ->
-        acc
+        case Lux.Signals.TelegramUpdate.new(update) do
+          {:ok, %Lux.Signal{} = signal} ->
+            dispatch_signal(signal, handler)
+            {[signal | signals_acc], next_offset}
+
+          {:error, reason} ->
+            Logger.warning(
+              "Telegram Poller dropping invalid update (id: #{inspect(update_id)}): #{inspect(reason)}"
+            )
+            {signals_acc, next_offset}
+        end
+
+      invalid_item, {signals_acc, max_offset} ->
+        Logger.warning("Telegram Poller received non-map update item: #{inspect(invalid_item)}")
+        {signals_acc, max_offset}
     end)
     |> then(fn {signals, final_offset} -> {Enum.reverse(signals), final_offset} end)
   end

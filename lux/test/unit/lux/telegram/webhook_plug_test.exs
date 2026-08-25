@@ -81,6 +81,68 @@ defmodule Lux.Telegram.WebhookPlugTest do
     end
   end
 
+  describe "payload validation and 400 Bad Request handling" do
+    test "rejects request with 400 when body is malformed JSON" do
+      opts = WebhookPlug.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", "{invalid-json-payload")
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> WebhookPlug.call(opts)
+
+      assert conn.status == 400
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Malformed JSON", "status" => "error"}
+      refute_receive {:telegram_update, _}
+    end
+
+    test "rejects request with 400 when body is empty" do
+      opts = WebhookPlug.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", "")
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> WebhookPlug.call(opts)
+
+      assert conn.status == 400
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Empty request body", "status" => "error"}
+      refute_receive {:telegram_update, _}
+    end
+
+    test "rejects request with 400 when payload is missing required update_id" do
+      opts = WebhookPlug.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"message" => %{"text" => "no update id"}}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> WebhookPlug.call(opts)
+
+      assert conn.status == 400
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Invalid update payload", "status" => "error"}
+      refute_receive {:telegram_update, _}
+    end
+
+    test "rejects request with 400 when JSON body is a non-map list or scalar" do
+      opts = WebhookPlug.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!([1, 2, 3]))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> WebhookPlug.call(opts)
+
+      assert conn.status == 400
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Invalid payload", "status" => "error"}
+      refute_receive {:telegram_update, _}
+    end
+  end
+
   describe "dispatch_signal with different handlers" do
     test "dispatches signal to function handler" do
       test_pid = self()

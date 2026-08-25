@@ -77,35 +77,58 @@ defmodule Lux.Telegram.Webhook do
   end
 
   defp handle_update(conn, opts) do
-    payload = parse_payload(conn)
+    with {:ok, payload} <- parse_payload(conn),
+         {:ok, signal} <- Lux.Signals.TelegramUpdate.new(payload) do
+      dispatch_signal(signal, opts.handler)
 
-    signal =
-      case Lux.Signals.TelegramUpdate.new(payload) do
-        {:ok, sig} -> sig
-        sig -> sig
-      end
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(200, Jason.encode!(%{ok: true}))
+    else
+      {:error, :malformed_json} ->
+        bad_request(conn, "Malformed JSON")
 
-    dispatch_signal(signal, opts.handler)
+      {:error, :empty_body} ->
+        bad_request(conn, "Empty request body")
 
-    conn
-    |> put_resp_content_type("application/json")
-    |> send_resp(200, Jason.encode!(%{ok: true}))
+      {:error, :invalid_payload} ->
+        bad_request(conn, "Invalid payload")
+
+      {:error, _validation_errors} ->
+        bad_request(conn, "Invalid update payload")
+    end
   end
 
-  defp parse_payload(%Plug.Conn{body_params: %{"update_id" => _} = params}), do: params
-  defp parse_payload(%Plug.Conn{body_params: params}) when is_map(params) and not is_struct(params) and map_size(params) > 0, do: params
+  defp parse_payload(%Plug.Conn{body_params: %{"update_id" => _} = params}), do: {:ok, params}
+  defp parse_payload(%Plug.Conn{body_params: %{update_id: _} = params}), do: {:ok, params}
+
+  defp parse_payload(%Plug.Conn{body_params: params})
+       when is_map(params) and not is_struct(params) and map_size(params) > 0,
+       do: {:ok, params}
 
   defp parse_payload(conn) do
     case read_body(conn) do
+      {:ok, "", _conn} ->
+        {:error, :empty_body}
+
       {:ok, body, _conn} ->
         case Jason.decode(body) do
-          {:ok, map} when is_map(map) -> map
-          _ -> %{}
+          {:ok, map} when is_map(map) and map_size(map) > 0 -> {:ok, map}
+          {:ok, map} when is_map(map) -> {:error, :invalid_payload}
+          {:ok, _non_map} -> {:error, :invalid_payload}
+          {:error, _decode_error} -> {:error, :malformed_json}
         end
 
-      _ ->
-        %{}
+      {:error, _reason} ->
+        {:error, :read_body_error}
     end
+  end
+
+  defp bad_request(conn, message) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(400, Jason.encode!(%{error: message, status: "error"}))
+    |> halt()
   end
 
   defp dispatch_signal(signal, handler) do
