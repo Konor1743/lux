@@ -87,3 +87,5 @@ defmodule TelegramBotRunner do
     end
   end
 end
+
+TelegramBotRunner.run()

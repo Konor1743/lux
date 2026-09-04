@@ -248,6 +248,13 @@ defmodule Lux.Signals.TelegramUpdateTest do
       })
       assert TelegramUpdate.chat_id(sig3) == 1003
 
+      # Edited channel post
+      {:ok, sig3b} = TelegramUpdate.new(%{
+        update_id: 31,
+        edited_channel_post: %{chat: %{id: 1033}}
+      })
+      assert TelegramUpdate.chat_id(sig3b) == 1033
+
       # Callback query
       {:ok, sig4} = TelegramUpdate.new(%{
         update_id: 4,
@@ -255,12 +262,30 @@ defmodule Lux.Signals.TelegramUpdateTest do
       })
       assert TelegramUpdate.chat_id(sig4) == 1004
 
+      # Callback query with chat_instance
+      {:ok, sig4b} = TelegramUpdate.new(%{
+        update_id: 41,
+        callback_query: %{chat_instance: "inst_123"}
+      })
+      assert TelegramUpdate.chat_id(sig4b) == "inst_123"
+
+      # My chat member, chat member, chat join request
+      {:ok, sig5a} = TelegramUpdate.new(%{update_id: 51, my_chat_member: %{chat: %{id: 1005}}})
+      assert TelegramUpdate.chat_id(sig5a) == 1005
+
+      {:ok, sig5b} = TelegramUpdate.new(%{update_id: 52, chat_member: %{chat: %{id: 1006}}})
+      assert TelegramUpdate.chat_id(sig5b) == 1006
+
+      {:ok, sig5c} = TelegramUpdate.new(%{update_id: 53, chat_join_request: %{chat: %{id: 1007}}})
+      assert TelegramUpdate.chat_id(sig5c) == 1007
+
       # Struct format
       update_struct = %Update{
         update_id: 5,
         message: %Message{chat: %Chat{id: 1005}}
       }
       assert TelegramUpdate.chat_id(update_struct) == 1005
+      assert is_nil(TelegramUpdate.chat_id(%{update_id: 6}))
     end
 
     test "text/1 extracts text from message, edited_message, channel_post, or callback_query" do
@@ -282,11 +307,31 @@ defmodule Lux.Signals.TelegramUpdateTest do
       })
       assert TelegramUpdate.text(sig3) == "channel update"
 
+      {:ok, sig3b} = TelegramUpdate.new(%{
+        update_id: 31,
+        edited_channel_post: %{text: "edited channel post text"}
+      })
+      assert TelegramUpdate.text(sig3b) == "edited channel post text"
+
+      {:ok, sig3c} = TelegramUpdate.new(%{
+        update_id: 32,
+        message: %{caption: "photo caption text"}
+      })
+      assert TelegramUpdate.text(sig3c) == "photo caption text"
+
       {:ok, sig4} = TelegramUpdate.new(%{
         update_id: 4,
         callback_query: %{data: "button_pressed"}
       })
       assert TelegramUpdate.text(sig4) == "button_pressed"
+
+      {:ok, sig4b} = TelegramUpdate.new(%{
+        update_id: 41,
+        callback_query: %{message: %{text: "text inside cb message"}}
+      })
+      assert TelegramUpdate.text(sig4b) == "text inside cb message"
+
+      assert is_nil(TelegramUpdate.text(%{update_id: 50}))
     end
 
     test "callback_query/1 extracts callback query object" do
@@ -298,4 +343,40 @@ defmodule Lux.Signals.TelegramUpdateTest do
                %{"id" => "cb-456"}
     end
   end
+
+  describe "to_atom_keys and to_struct edge cases" do
+    test "new/1 with %Types.Update{} inside payload field and scalar payload" do
+      update = %Update{update_id: 888, message: %Message{text: "nested struct"}}
+      assert {:ok, signal} = TelegramUpdate.new(%{payload: update})
+      assert signal.payload.update_id == 888
+
+      assert {:ok, sig_str} = TelegramUpdate.new(%{"payload" => update})
+      assert sig_str.payload.update_id == 888
+
+      # Non-map payload
+      assert {:error, _} = TelegramUpdate.new(%{payload: "invalid_scalar_payload"})
+    end
+
+    test "to_atom_keys and to_struct edge cases" do
+      assert is_nil(TelegramUpdate.to_struct("not_a_map"))
+      assert is_nil(TelegramUpdate.to_struct(12345))
+      assert is_nil(TelegramUpdate.to_struct(:atom_val))
+
+      assert TelegramUpdate.to_atom_keys(%User{id: 100}) == %{id: 100, is_bot: nil, first_name: nil, last_name: nil, username: nil, language_code: nil, can_join_groups: nil, can_read_all_group_messages: nil, supports_inline_queries: nil}
+      assert TelegramUpdate.to_atom_keys(%{123 => "numeric_key", {:tuple, :key} => "tuple_val"}) == %{123 => "numeric_key", {:tuple, :key} => "tuple_val"}
+      assert TelegramUpdate.to_atom_keys("scalar_string") == "scalar_string"
+      assert TelegramUpdate.to_atom_keys(42) == 42
+      assert is_nil(TelegramUpdate.to_atom_keys(nil))
+
+      # Extractors with nil / invalid targets
+      assert TelegramUpdate.chat_id(%{"message" => %{"chat" => %{id: 777}}}) == 777
+      assert is_nil(TelegramUpdate.chat_id(nil))
+      assert is_nil(TelegramUpdate.chat_id("not_a_map"))
+      assert is_nil(TelegramUpdate.text(nil))
+      assert is_nil(TelegramUpdate.text("not_a_map"))
+      assert is_nil(TelegramUpdate.message(nil))
+      assert is_nil(TelegramUpdate.callback_query(nil))
+    end
+  end
 end
+

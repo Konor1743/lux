@@ -1,5 +1,5 @@
 defmodule Lux.Integrations.Telegram.ClientTest do
-  use UnitAPICase, async: true
+  use UnitAPICase, async: false
 
   alias Lux.Integrations.Telegram.Client
 
@@ -327,5 +327,32 @@ defmodule Lux.Integrations.Telegram.ClientTest do
       assert {:error, {404, "Bad Request: file not found"}} =
                Client.download_file("missing_file_id", token: @bot_token)
     end
+
+    test "handles 429 with atom map, 500 without description, and network exceptions" do
+      plug_429 = fn conn ->
+        conn |> Plug.Conn.put_resp_content_type("application/json") |> Plug.Conn.send_resp(429, Jason.encode!(%{parameters: %{retry_after: 5}}))
+      end
+      assert {:error, {429, _}} = Client.request(:get, "/test", %{token: @bot_token, plug: plug_429})
+
+      plug_500 = fn conn ->
+        conn |> Plug.Conn.put_resp_content_type("text/plain") |> Plug.Conn.send_resp(500, "Server Failure")
+      end
+      assert {:error, {500, "Server Failure"}} = Client.request(:get, "/test", %{token: @bot_token, plug: plug_500})
+
+      bad_plug = fn _conn -> raise "Network disconnect" end
+      assert {:error, %RuntimeError{message: "Network disconnect"}} = Client.request(:get, "/test", %{token: @bot_token, plug: bad_plug})
+
+      plug_ok = fn conn ->
+        case conn.request_path do
+          "/bottest_bot_token/getFile" ->
+            conn |> Plug.Conn.put_resp_content_type("application/json") |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => %{"file_path" => "photos/f.jpg"}}))
+          "/file/bottest_bot_token/photos/f.jpg" ->
+            conn |> Plug.Conn.put_resp_content_type("image/jpeg") |> Plug.Conn.send_resp(200, "file_data")
+        end
+      end
+      assert {:ok, _} = Client.get_file("f1", %{token: @bot_token, plug: plug_ok})
+      assert {:ok, "file_data"} = Client.download_file("f1", %{token: @bot_token, plug: plug_ok})
+    end
   end
 end
+

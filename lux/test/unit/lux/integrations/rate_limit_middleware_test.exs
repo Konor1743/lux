@@ -70,12 +70,19 @@ defmodule Lux.Integrations.RateLimitMiddlewareTest do
 
       response_mixed = %Req.Response{
         status: 429,
-        headers: [{"Retry-After", "25"}],
+        headers: [{"Retry-After", "25"}, :invalid_header_item],
+        body: %{}
+      }
+
+      response_float_header = %Req.Response{
+        status: 429,
+        headers: [{"retry-after", "4.2"}],
         body: %{}
       }
 
       assert RateLimit.extract_retry_after(response_list) == 12
       assert RateLimit.extract_retry_after(response_mixed) == 25
+      assert RateLimit.extract_retry_after(response_float_header) == 4
     end
 
     test "defaults to 1 second when parameters and headers are missing or invalid" do
@@ -87,6 +94,7 @@ defmodule Lux.Integrations.RateLimitMiddlewareTest do
 
       assert RateLimit.extract_retry_after(response_empty) == 1
     end
+
 
     test "retries request on HTTP 429 status code up to max_rate_limit_retries with sleep_fun" do
       test_process = self()

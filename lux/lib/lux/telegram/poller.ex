@@ -194,9 +194,17 @@ defmodule Lux.Telegram.Poller do
 
     case response do
       {:ok, %{"ok" => true, "result" => updates}} when is_list(updates) ->
-        {signals, new_offset} = process_updates(updates, state.offset, state.handler)
-        new_state = %{state | offset: new_offset, consecutive_errors: 0, backoff_delay: 0}
-        {:ok, signals, new_state}
+        case process_updates(updates, state.offset, state.handler) do
+          {:ok, signals, new_offset} ->
+            new_state = %{state | offset: new_offset, consecutive_errors: 0, backoff_delay: 0}
+            {:ok, signals, new_state}
+
+          {:error, reason, _signals, unadvanced_offset} ->
+            consecutive = state.consecutive_errors + 1
+            backoff_ms = calculate_backoff(consecutive)
+            new_state = %{state | offset: unadvanced_offset, consecutive_errors: consecutive, backoff_delay: backoff_ms}
+            {:error, {:handler_error, reason}, new_state}
+        end
 
       {:ok, %{"ok" => true, "result" => _other}} ->
         consecutive = state.consecutive_errors + 1
@@ -285,7 +293,7 @@ defmodule Lux.Telegram.Poller do
   defp extract_retry_after(_), do: nil
 
   defp process_updates(updates, current_offset, handler) do
-    Enum.reduce(updates, {[], current_offset}, fn
+    Enum.reduce_while(updates, {[], current_offset}, fn
       update, {signals_acc, max_offset} when is_map(update) ->
         raw_id = update["update_id"] || update[:update_id]
 
@@ -309,53 +317,92 @@ defmodule Lux.Telegram.Poller do
 
         case Lux.Signals.TelegramUpdate.new(update) do
           {:ok, %Lux.Signal{} = signal} ->
-            dispatch_signal(signal, handler)
-            {[signal | signals_acc], next_offset}
+            case dispatch_signal(signal, handler) do
+              :ok ->
+                {:cont, {[signal | signals_acc], next_offset}}
+
+              {:error, reason} ->
+                Logger.error(
+                  "Poller handler failed on update #{inspect(update_id)}: #{inspect(reason)}"
+                )
+                {:halt, {:error, reason, signals_acc, max_offset}}
+            end
 
           {:error, reason} ->
             Logger.warning(
               "Telegram Poller dropping invalid update (id: #{inspect(update_id)}): #{inspect(reason)}"
             )
-            {signals_acc, next_offset}
+            {:cont, {signals_acc, next_offset}}
         end
 
       invalid_item, {signals_acc, max_offset} ->
         Logger.warning("Telegram Poller received non-map update item: #{inspect(invalid_item)}")
-        {signals_acc, max_offset}
+        {:cont, {signals_acc, max_offset}}
     end)
-    |> then(fn {signals, final_offset} -> {Enum.reverse(signals), final_offset} end)
+    |> case do
+      {:error, reason, signals_acc, unadvanced_offset} ->
+        {:error, reason, Enum.reverse(signals_acc), unadvanced_offset}
+
+      {signals_acc, final_offset} ->
+        {:ok, Enum.reverse(signals_acc), final_offset}
+    end
   end
 
   defp dispatch_signal(signal, handler) do
     try do
-      cond do
-        is_function(handler, 1) ->
-          handler.(signal)
+      result =
+        cond do
+          is_function(handler, 1) ->
+            handler.(signal)
 
-        is_pid(handler) ->
-          send(handler, {:telegram_update, signal})
+          is_pid(handler) ->
+            send(handler, {:telegram_update, signal})
+            :ok
 
-        is_atom(handler) and handler != nil ->
-          cond do
-            Code.ensure_loaded?(handler) and function_exported?(handler, :handle_signal, 1) ->
-              handler.handle_signal(signal)
+          is_atom(handler) and handler != nil ->
+            cond do
+              Code.ensure_loaded?(handler) and function_exported?(handler, :handle_signal, 1) ->
+                handler.handle_signal(signal)
 
-            Code.ensure_loaded?(handler) and function_exported?(handler, :handle_update, 1) ->
-              handler.handle_update(signal)
+              Code.ensure_loaded?(handler) and function_exported?(handler, :handle_update, 1) ->
+                handler.handle_update(signal)
 
-            true ->
-              :ok
-          end
+              true ->
+                :ok
+            end
 
-        true ->
+          true ->
+            :ok
+        end
+
+      case result do
+        {:error, reason} ->
+          Logger.error("Poller handler returned error: #{inspect(reason)}")
+          {:error, reason}
+
+        :error ->
+          Logger.error("Poller handler returned :error")
+          {:error, :handler_error}
+
+        _ ->
           :ok
       end
     rescue
-      e -> Logger.error("Poller handler error: #{inspect(e)}")
+      e ->
+        Logger.error("Poller handler error: #{inspect(e)}")
+        {:error, {:handler_exception, e}}
     catch
-      :throw, value -> Logger.error("Poller handler threw: #{inspect(value)}")
-      :exit, reason -> Logger.error("Poller handler exited: #{inspect(reason)}")
-      kind, reason -> Logger.error("Poller handler #{kind}: #{inspect(reason)}")
+      :throw, value ->
+        Logger.error("Poller handler threw: #{inspect(value)}")
+        {:error, {:handler_throw, value}}
+
+      :exit, reason ->
+        Logger.error("Poller handler exited: #{inspect(reason)}")
+        {:error, {:handler_exit, reason}}
+
+      kind, reason ->
+        Logger.error("Poller handler #{kind}: #{inspect(reason)}")
+        {:error, {:handler_crash, {kind, reason}}}
     end
   end
 end

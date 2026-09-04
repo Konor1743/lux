@@ -78,9 +78,8 @@ defmodule Lux.Telegram.Webhook do
 
   defp handle_update(conn, opts) do
     with {:ok, payload} <- parse_payload(conn),
-         {:ok, signal} <- Lux.Signals.TelegramUpdate.new(payload) do
-      dispatch_signal(signal, opts.handler)
-
+         {:ok, signal} <- Lux.Signals.TelegramUpdate.new(payload),
+         :ok <- dispatch_signal(signal, opts.handler) do
       conn
       |> put_resp_content_type("application/json")
       |> send_resp(200, Jason.encode!(%{ok: true}))
@@ -94,8 +93,21 @@ defmodule Lux.Telegram.Webhook do
       {:error, :invalid_payload} ->
         bad_request(conn, "Invalid payload")
 
-      {:error, _validation_errors} ->
+      {:error, :read_body_error} ->
+        bad_request(conn, "Invalid payload")
+
+      {:error, :invalid_update} ->
         bad_request(conn, "Invalid update payload")
+
+      {:error, %{schema_errors: _}} ->
+        bad_request(conn, "Invalid update payload")
+
+      {:error, validation_errors} when is_list(validation_errors) ->
+        bad_request(conn, "Invalid update payload")
+
+      {:error, reason} ->
+        Logger.error("Webhook handler failed: #{inspect(reason)}")
+        server_error(conn, "Handler error")
     end
   end
 
@@ -131,36 +143,68 @@ defmodule Lux.Telegram.Webhook do
     |> halt()
   end
 
+  defp server_error(conn, message) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(500, Jason.encode!(%{error: message, status: "error"}))
+    |> halt()
+  end
+
   defp dispatch_signal(signal, handler) do
     try do
-      cond do
-        is_function(handler, 1) ->
-          handler.(signal)
+      result =
+        cond do
+          is_function(handler, 1) ->
+            handler.(signal)
 
-        is_pid(handler) ->
-          send(handler, {:telegram_update, signal})
+          is_pid(handler) ->
+            send(handler, {:telegram_update, signal})
+            :ok
 
-        is_atom(handler) and handler != nil ->
-          cond do
-            Code.ensure_loaded?(handler) and function_exported?(handler, :handle_signal, 1) ->
-              handler.handle_signal(signal)
+          is_atom(handler) and handler != nil ->
+            cond do
+              Code.ensure_loaded?(handler) and function_exported?(handler, :handle_signal, 1) ->
+                handler.handle_signal(signal)
 
-            Code.ensure_loaded?(handler) and function_exported?(handler, :handle_update, 1) ->
-              handler.handle_update(signal)
+              Code.ensure_loaded?(handler) and function_exported?(handler, :handle_update, 1) ->
+                handler.handle_update(signal)
 
-            true ->
-              :ok
-          end
+              true ->
+                :ok
+            end
 
-        true ->
+          true ->
+            :ok
+        end
+
+      case result do
+        {:error, reason} ->
+          Logger.error("Webhook handler returned error: #{inspect(reason)}")
+          {:error, reason}
+
+        :error ->
+          Logger.error("Webhook handler returned :error")
+          {:error, :handler_error}
+
+        _ ->
           :ok
       end
     rescue
-      e -> Logger.error("Webhook handler error: #{inspect(e)}")
+      e ->
+        Logger.error("Webhook handler error: #{inspect(e)}")
+        {:error, {:handler_exception, e}}
     catch
-      :throw, value -> Logger.error("Webhook handler threw: #{inspect(value)}")
-      :exit, reason -> Logger.error("Webhook handler exited: #{inspect(reason)}")
-      kind, reason -> Logger.error("Webhook handler #{kind}: #{inspect(reason)}")
+      :throw, value ->
+        Logger.error("Webhook handler threw: #{inspect(value)}")
+        {:error, {:handler_throw, value}}
+
+      :exit, reason ->
+        Logger.error("Webhook handler exited: #{inspect(reason)}")
+        {:error, {:handler_exit, reason}}
+
+      kind, reason ->
+        Logger.error("Webhook handler #{kind}: #{inspect(reason)}")
+        {:error, {:handler_crash, {kind, reason}}}
     end
   end
 

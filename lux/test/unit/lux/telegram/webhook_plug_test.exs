@@ -1,6 +1,5 @@
 defmodule Lux.Telegram.WebhookPlugTest do
   use UnitAPICase, async: false
-  import Mock
 
   alias Lux.Telegram.WebhookPlug
 
@@ -24,14 +23,18 @@ defmodule Lux.Telegram.WebhookPlugTest do
     end
 
     test "falls back to config or env for secret token" do
-      System.put_env("TELEGRAM_SECRET_TOKEN", "env_secret_token")
-
-      with_mock Lux.Config, [:passthrough], [telegram_secret_token: fn -> nil end] do
+      orig_keys = Application.get_env(:lux, :api_keys, [])
+      try do
+        Application.put_env(:lux, :api_keys, [telegram_secret: "cfg_secret"])
         opts = WebhookPlug.init(%{})
-        assert opts.secret_token == "env_secret_token"
-      end
+        assert opts.secret_token == "cfg_secret"
 
-      System.delete_env("TELEGRAM_SECRET_TOKEN")
+        Application.put_env(:lux, :api_keys, [])
+        opts_nil = WebhookPlug.init(%{})
+        assert opts_nil.secret_token == nil
+      after
+        Application.put_env(:lux, :api_keys, orig_keys)
+      end
     end
   end
 
@@ -160,7 +163,7 @@ defmodule Lux.Telegram.WebhookPlugTest do
       assert signal.payload["update_id"] == 201
     end
 
-    test "handles exceptions in function handler gracefully" do
+    test "handles exceptions in function handler gracefully by returning 500" do
       failing_fn = fn _sig -> raise "Handler crash test" end
       opts = WebhookPlug.init(handler: failing_fn)
 
@@ -170,7 +173,39 @@ defmodule Lux.Telegram.WebhookPlugTest do
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> WebhookPlug.call(opts)
 
-      assert conn.status == 200
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body)["status"] == "error"
+    end
+
+    test "handles function handler returning {:error, reason} with 500" do
+      failing_fn = fn _sig -> {:error, :database_offline} end
+      opts = WebhookPlug.init(handler: failing_fn)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 202}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> WebhookPlug.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body)["status"] == "error"
+    end
+
+    test "handles function handler returning :error with 500" do
+      failing_fn = fn _sig -> :error end
+      opts = WebhookPlug.init(handler: failing_fn)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 202}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> WebhookPlug.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body)["status"] == "error"
     end
 
     test "dispatches signal to module handler" do
@@ -229,4 +264,206 @@ defmodule Lux.Telegram.WebhookPlugTest do
       assert {:ok, _} = WebhookPlug.get_webhook_info(opts)
     end
   end
+
+  describe "Lux.Telegram.Webhook direct module functions and body parser edge cases" do
+    test "direct Webhook helper functions" do
+      plug = fn conn ->
+        conn |> Plug.Conn.put_resp_content_type("application/json") |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => true}))
+      end
+
+      opts = [token: "tok", plug: plug]
+      assert {:ok, _} = Lux.Telegram.Webhook.set_webhook("https://example.com/wh", opts)
+      assert {:ok, _} = Lux.Telegram.Webhook.delete_webhook(opts)
+      assert {:ok, _} = Lux.Telegram.Webhook.get_webhook_info(opts)
+    end
+
+    test "parses body_params with atom key :update_id" do
+      opts = Lux.Telegram.Webhook.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook")
+        |> Map.put(:body_params, %{update_id: 888, message: %{text: "atom key"}})
+        |> Lux.Telegram.Webhook.call(opts)
+
+      assert conn.status == 200
+      assert_receive {:telegram_update, signal}
+      assert signal.payload[:update_id] == 888 || signal.payload["update_id"] == 888
+    end
+
+    test "returns 400 for empty JSON object" do
+      opts = Lux.Telegram.Webhook.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", "{}")
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+
+      assert conn.status == 400
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Invalid payload", "status" => "error"}
+    end
+  end
+
+  describe "webhook edge cases and fallbacks" do
+    test "secret_token_valid? with empty string" do
+      opts = Lux.Telegram.Webhook.init(secret_token: "", handler: self())
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 901}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+      assert conn.status == 200
+    end
+
+    test "parse_payload with non-empty map body_params lacking update_id" do
+      opts = Lux.Telegram.Webhook.init(handler: self())
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook")
+        |> Map.put(:body_params, %{"other" => "val"})
+        |> Lux.Telegram.Webhook.call(opts)
+      assert conn.status == 400
+    end
+
+    test "dispatch_signal when handler module has no callbacks" do
+      defmodule NoCallbacksHandler do
+      end
+      opts = Lux.Telegram.Webhook.init(handler: NoCallbacksHandler)
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 902}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+      assert conn.status == 200
+    end
+
+    test "dispatch_signal when handler is nil" do
+      opts = %{secret_token: nil, handler: nil}
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 903}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+      assert conn.status == 200
+    end
+
+    test "direct Webhook helper functions" do
+      plug = fn conn ->
+        conn |> Plug.Conn.put_resp_content_type("application/json") |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => true}))
+      end
+
+      opts = [token: "tok", plug: plug]
+      assert {:ok, _} = Lux.Telegram.Webhook.set_webhook("https://example.com/wh", opts)
+      assert {:ok, _} = Lux.Telegram.Webhook.delete_webhook(opts)
+      assert {:ok, _} = Lux.Telegram.Webhook.get_webhook_info(opts)
+    end
+
+    test "parses body_params with atom key :update_id" do
+      opts = Lux.Telegram.Webhook.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook")
+        |> Map.put(:body_params, %{update_id: 888, message: %{text: "atom key"}})
+        |> Lux.Telegram.Webhook.call(opts)
+
+      assert conn.status == 200
+      assert_receive {:telegram_update, signal}
+      assert signal.payload[:update_id] == 888 || signal.payload["update_id"] == 888
+    end
+
+    test "returns 400 for empty JSON object and JSON array" do
+      opts = Lux.Telegram.Webhook.init(handler: self())
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", "{}")
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+
+      assert conn.status == 400
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Invalid payload", "status" => "error"}
+
+      conn_arr =
+        :post
+        |> Plug.Test.conn("/webhook", "[1, 2]")
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+
+      assert conn_arr.status == 400
+      assert conn_arr.halted
+      assert Jason.decode!(conn_arr.resp_body) == %{"error" => "Invalid payload", "status" => "error"}
+    end
+  end
+
+  describe "webhook plug edge cases and full branch coverage" do
+    test "secret_token_valid? with empty string" do
+      opts = Lux.Telegram.Webhook.init(secret_token: "", handler: self())
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 901}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+      assert conn.status == 200
+    end
+
+    test "parse_payload with non-empty map body_params lacking update_id" do
+      opts = Lux.Telegram.Webhook.init(handler: self())
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook")
+        |> Map.put(:body_params, %{"other" => "val"})
+        |> Lux.Telegram.Webhook.call(opts)
+      assert conn.status == 400
+      assert conn.halted
+    end
+
+    defmodule ModuleUpdateHandler do
+      def handle_update(signal) do
+        send(self(), {:module_update_handled, signal})
+        :ok
+      end
+    end
+
+    test "dispatch_signal when handler module implements handle_update/1" do
+      opts = Lux.Telegram.Webhook.init(handler: ModuleUpdateHandler)
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 905}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(opts)
+      assert conn.status == 200
+      assert_receive {:module_update_handled, _}
+    end
+
+    test "dispatch_signal when handler throws, exits, or crashes" do
+      # Throw
+      throw_opts = Lux.Telegram.Webhook.init(handler: fn _sig -> throw(:webhook_throw) end)
+      conn_throw =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 906}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(throw_opts)
+      assert conn_throw.status == 500
+
+      # Exit
+      exit_opts = Lux.Telegram.Webhook.init(handler: fn _sig -> exit(:webhook_exit) end)
+      conn_exit =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 907}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Lux.Telegram.Webhook.call(exit_opts)
+      assert conn_exit.status == 500
+    end
+
+    test "fetch_config_secret_token fallback" do
+      opts = Lux.Telegram.Webhook.init(%{})
+      assert opts.secret_token == nil || is_binary(opts.secret_token)
+    end
+  end
 end
+
+

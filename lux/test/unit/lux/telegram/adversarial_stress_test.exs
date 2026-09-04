@@ -2,18 +2,70 @@ defmodule Lux.Telegram.AdversarialStressTest do
   use UnitAPICase, async: false
   require Logger
 
+  alias Lux.Telegram.Webhook
   alias Lux.Telegram.WebhookPlug
   alias Lux.Telegram.Poller
 
   @secret_token "V3ry_S3cur3_T0k3n_#2026!"
 
-  defmodule CrashModuleHandler do
-    def handle_signal(_signal), do: raise("Crash in handle_signal/1")
+  # ============================================================================
+  # HELPER MODULE HANDLERS FOR ADVERSARIAL TESTING
+  # ============================================================================
+
+  defmodule CrashRaiseSignalHandler do
+    def handle_signal(_signal), do: raise(RuntimeError, "Module handle_signal raise crash")
   end
 
-  defmodule LegacyUpdateModuleHandler do
+  defmodule CrashThrowSignalHandler do
+    def handle_signal(_signal), do: throw(:module_signal_throw_bomb)
+  end
+
+  defmodule CrashExitSignalHandler do
+    def handle_signal(_signal), do: exit(:module_signal_kill)
+  end
+
+  defmodule ErrorTupleSignalHandler do
+    def handle_signal(_signal), do: {:error, :database_connection_lost}
+  end
+
+  defmodule ErrorAtomSignalHandler do
+    def handle_signal(_signal), do: :error
+  end
+
+  defmodule CrashRaiseUpdateHandler do
+    def handle_update(_signal), do: raise(RuntimeError, "Module handle_update raise crash")
+  end
+
+  defmodule CrashThrowUpdateHandler do
+    def handle_update(_signal), do: throw(:module_update_throw_bomb)
+  end
+
+  defmodule CrashExitUpdateHandler do
+    def handle_update(_signal), do: exit(:module_update_kill)
+  end
+
+  defmodule ErrorTupleUpdateHandler do
+    def handle_update(_signal), do: {:error, :upstream_timeout}
+  end
+
+  defmodule ErrorAtomUpdateHandler do
+    def handle_update(_signal), do: :error
+  end
+
+  defmodule SuccessSignalHandler do
+    def handle_signal(signal) do
+      if pid = Process.whereis(:test_receiver) do
+        send(pid, {:module_signal_ok, signal})
+      end
+      :ok
+    end
+  end
+
+  defmodule SuccessUpdateHandler do
     def handle_update(signal) do
-      send(signal.sender || self(), {:legacy_handled, signal})
+      if pid = Process.whereis(:test_receiver) do
+        send(pid, {:module_update_ok, signal})
+      end
       :ok
     end
   end
@@ -23,7 +75,244 @@ defmodule Lux.Telegram.AdversarialStressTest do
   end
 
   # ============================================================================
-  # 1. WEBHOOK ADVERSARIAL STRESS TESTS
+  # 1. WEBHOOK R1: HANDLER FAILURE MODES (CRASHES, THROWS, EXITS, ERROR TUPLES)
+  # ============================================================================
+
+  describe "Webhook R1: Function handler failure modes return 500 and halt" do
+    test "fn handler raising RuntimeError returns 500, halts, and returns JSON error" do
+      handler = fn _sig -> raise RuntimeError, "Boom! Handler exploded" end
+      opts = Webhook.init(handler: handler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 101}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "fn handler throwing a term returns 500, halts, and returns JSON error" do
+      handler = fn _sig -> throw(:fatal_throw) end
+      opts = Webhook.init(handler: handler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 102}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "fn handler calling exit/1 returns 500, halts, and returns JSON error" do
+      handler = fn _sig -> exit(:killed_by_handler) end
+      opts = Webhook.init(handler: handler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 103}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "fn handler returning {:error, :reason} returns 500, halts, and returns JSON error" do
+      handler = fn _sig -> {:error, :invalid_state} end
+      opts = Webhook.init(handler: handler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 104}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "fn handler returning :error returns 500, halts, and returns JSON error" do
+      handler = fn _sig -> :error end
+      opts = Webhook.init(handler: handler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 105}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+  end
+
+  describe "Webhook R1: Module handler failure modes return 500 and halt" do
+    test "module handle_signal/1 raising an exception returns 500 and halts" do
+      opts = Webhook.init(handler: CrashRaiseSignalHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 110}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_signal/1 throwing a term returns 500 and halts" do
+      opts = Webhook.init(handler: CrashThrowSignalHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 111}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_signal/1 exiting returns 500 and halts" do
+      opts = Webhook.init(handler: CrashExitSignalHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 112}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_signal/1 returning {:error, reason} returns 500 and halts" do
+      opts = Webhook.init(handler: ErrorTupleSignalHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 113}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_signal/1 returning :error returns 500 and halts" do
+      opts = Webhook.init(handler: ErrorAtomSignalHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 114}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_update/1 raising an exception returns 500 and halts" do
+      opts = Webhook.init(handler: CrashRaiseUpdateHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 115}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_update/1 throwing a term returns 500 and halts" do
+      opts = Webhook.init(handler: CrashThrowUpdateHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 116}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_update/1 exiting returns 500 and halts" do
+      opts = Webhook.init(handler: CrashExitUpdateHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 117}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_update/1 returning {:error, reason} returns 500 and halts" do
+      opts = Webhook.init(handler: ErrorTupleUpdateHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 118}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "module handle_update/1 returning :error returns 500 and halts" do
+      opts = Webhook.init(handler: ErrorAtomUpdateHandler)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 119}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Webhook.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+
+    test "WebhookPlug alias delegates correctly for handler crashes" do
+      opts = WebhookPlug.init(handler: fn _ -> raise "Delegated plug boom" end)
+
+      conn =
+        :post
+        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 120}))
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> WebhookPlug.call(opts)
+
+      assert conn.status == 500
+      assert conn.halted
+      assert Jason.decode!(conn.resp_body) == %{"error" => "Handler error", "status" => "error"}
+    end
+  end
+
+  # ============================================================================
+  # 2. WEBHOOK INPUT VALIDATION AND AUTH STRESS TESTS
   # ============================================================================
 
   describe "Webhook: Malformed JSON syntax stress test" do
@@ -45,13 +334,13 @@ defmodule Lux.Telegram.AdversarialStressTest do
     for {label, body} <- @malformed_bodies do
       @tag label: label
       test "rejects malformed JSON (#{label}) with HTTP 400 and halts" do
-        opts = WebhookPlug.init(handler: self())
+        opts = Webhook.init(handler: self())
 
         conn =
           :post
           |> Plug.Test.conn("/webhook", unquote(body))
           |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> WebhookPlug.call(opts)
+          |> Webhook.call(opts)
 
         assert conn.status == 400, "Expected 400 for #{unquote(label)}, got #{conn.status}"
         assert conn.halted
@@ -72,13 +361,13 @@ defmodule Lux.Telegram.AdversarialStressTest do
 
     for {label, body} <- @empty_or_whitespace_bodies do
       test "rejects empty/whitespace body (#{label}) with HTTP 400 and halts" do
-        opts = WebhookPlug.init(handler: self())
+        opts = Webhook.init(handler: self())
 
         conn =
           :post
           |> Plug.Test.conn("/webhook", unquote(body))
           |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> WebhookPlug.call(opts)
+          |> Webhook.call(opts)
 
         assert conn.status == 400
         assert conn.halted
@@ -109,13 +398,13 @@ defmodule Lux.Telegram.AdversarialStressTest do
 
     for {label, body} <- @non_map_roots do
       test "rejects non-map/empty JSON root (#{label}) with HTTP 400 and halts" do
-        opts = WebhookPlug.init(handler: self())
+        opts = Webhook.init(handler: self())
 
         conn =
           :post
           |> Plug.Test.conn("/webhook", unquote(body))
           |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> WebhookPlug.call(opts)
+          |> Webhook.call(opts)
 
         assert conn.status == 400
         assert conn.halted
@@ -146,13 +435,13 @@ defmodule Lux.Telegram.AdversarialStressTest do
 
     for {label, payload} <- @invalid_schema_payloads do
       test "rejects invalid update schema (#{label}) with HTTP 400 and halts" do
-        opts = WebhookPlug.init(handler: self())
+        opts = Webhook.init(handler: self())
 
         conn =
           :post
           |> Plug.Test.conn("/webhook", Jason.encode!(unquote(Macro.escape(payload))))
           |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> WebhookPlug.call(opts)
+          |> Webhook.call(opts)
 
         assert conn.status == 400
         assert conn.halted
@@ -180,7 +469,7 @@ defmodule Lux.Telegram.AdversarialStressTest do
 
     for {label, header_val} <- @auth_bypass_cases do
       test "rejects secret token bypass attempt (#{label}) with HTTP 401 and halts" do
-        opts = WebhookPlug.init(secret_token: @secret_token, handler: self())
+        opts = Webhook.init(secret_token: @secret_token, handler: self())
 
         conn =
           :post
@@ -193,7 +482,7 @@ defmodule Lux.Telegram.AdversarialStressTest do
               c
             end
           end)
-          |> WebhookPlug.call(opts)
+          |> Webhook.call(opts)
 
         assert conn.status == 401
         assert conn.halted
@@ -203,14 +492,14 @@ defmodule Lux.Telegram.AdversarialStressTest do
     end
 
     test "accepts request when secret token matches exactly" do
-      opts = WebhookPlug.init(secret_token: @secret_token, handler: self())
+      opts = Webhook.init(secret_token: @secret_token, handler: self())
 
       conn =
         :post
         |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 201, "message" => %{"text" => "authorized"}}))
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> Plug.Conn.put_req_header("x-telegram-bot-api-secret-token", @secret_token)
-        |> WebhookPlug.call(opts)
+        |> Webhook.call(opts)
 
       assert conn.status == 200
       refute conn.halted
@@ -220,14 +509,14 @@ defmodule Lux.Telegram.AdversarialStressTest do
 
     test "accepts request with unicode / multibyte secret token" do
       unicode_token = "🔑_töken_2026_🔐"
-      opts = WebhookPlug.init(secret_token: unicode_token, handler: self())
+      opts = Webhook.init(secret_token: unicode_token, handler: self())
 
       conn =
         :post
         |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 202, "message" => %{"text" => "unicode auth"}}))
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> Plug.Conn.put_req_header("x-telegram-bot-api-secret-token", unicode_token)
-        |> WebhookPlug.call(opts)
+        |> Webhook.call(opts)
 
       assert conn.status == 200
       assert_receive {:telegram_update, signal}
@@ -235,87 +524,768 @@ defmodule Lux.Telegram.AdversarialStressTest do
     end
   end
 
-  describe "Webhook: Handler fault tolerance and dispatch types" do
-    test "survives handler throwing an exception" do
-      crashing_handler = fn _signal -> raise RuntimeError, "Boom! Handler exploded" end
-      opts = WebhookPlug.init(handler: crashing_handler)
+  # ============================================================================
+  # 3. POLLER R1: HANDLER FAILURE MODES IN POLL_ONCE (SINGLE & MULTI-BATCH)
+  # ============================================================================
 
-      conn =
-        :post
-        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 301}))
-        |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> WebhookPlug.call(opts)
+  describe "Poller R1: Function handler failure modes in poll_once do not advance offset" do
+    test "fn handler raising RuntimeError halts batch and preserves unadvanced offset" do
+      test_pid = self()
 
-      assert conn.status == 200
+      crashing_handler = fn signal ->
+        if signal.payload["update_id"] == 302 do
+          raise RuntimeError, "Explosion on 302"
+        else
+          send(test_pid, {:handled, signal.payload["update_id"]})
+        end
+      end
+
+      updates = [
+        %{"update_id" => 301, "message" => %{"text" => "msg 301"}},
+        %{"update_id" => 302, "message" => %{"text" => "msg 302"}},
+        %{"update_id" => 303, "message" => %{"text" => "msg 303"}}
+      ]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: crashing_handler,
+          autostart: false,
+          offset: 300
+        })
+
+      assert {:error, {:handler_error, {:handler_exception, %RuntimeError{message: "Explosion on 302"}}}} =
+               Poller.poll_once(poller)
+
+      # 301 was processed, so offset reached 302. 302 crashed, so offset MUST NOT be 303 or 304!
+      assert Poller.get_offset(poller) == 302
+
+      assert_receive {:handled, 301}
+      refute_receive {:handled, 302}
+      refute_receive {:handled, 303}
+
+      Poller.stop(poller)
     end
 
-    test "survives handler throwing an atom/term" do
-      throwing_handler = fn _signal -> throw(:unexpected_throw) end
-      opts = WebhookPlug.init(handler: throwing_handler)
+    test "fn handler throwing a term halts batch and preserves unadvanced offset" do
+      test_pid = self()
 
-      conn =
-        :post
-        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 302}))
-        |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> WebhookPlug.call(opts)
+      throwing_handler = fn signal ->
+        if signal.payload["update_id"] == 402 do
+          throw(:throw_bomb)
+        else
+          send(test_pid, {:handled, signal.payload["update_id"]})
+        end
+      end
 
-      assert conn.status == 200
+      updates = [
+        %{"update_id" => 401, "message" => %{"text" => "msg 401"}},
+        %{"update_id" => 402, "message" => %{"text" => "msg 402"}},
+        %{"update_id" => 403, "message" => %{"text" => "msg 403"}}
+      ]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: throwing_handler,
+          autostart: false,
+          offset: 400
+        })
+
+      assert {:error, {:handler_error, {:handler_throw, :throw_bomb}}} = Poller.poll_once(poller)
+
+      # Offset must be 402, NOT 403 or 404
+      assert Poller.get_offset(poller) == 402
+
+      assert_receive {:handled, 401}
+      refute_receive {:handled, 403}
+
+      Poller.stop(poller)
     end
 
-    test "survives handler calling exit(:shutdown)" do
-      exiting_handler = fn _signal -> exit(:shutdown) end
-      opts = WebhookPlug.init(handler: exiting_handler)
+    test "fn handler exiting halts batch and preserves unadvanced offset" do
+      test_pid = self()
 
-      conn =
-        :post
-        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 303}))
-        |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> WebhookPlug.call(opts)
+      exiting_handler = fn signal ->
+        if signal.payload["update_id"] == 502 do
+          exit(:killed)
+        else
+          send(test_pid, {:handled, signal.payload["update_id"]})
+        end
+      end
 
-      assert conn.status == 200
+      updates = [
+        %{"update_id" => 501, "message" => %{"text" => "msg 501"}},
+        %{"update_id" => 502, "message" => %{"text" => "msg 502"}},
+        %{"update_id" => 503, "message" => %{"text" => "msg 503"}}
+      ]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: exiting_handler,
+          autostart: false,
+          offset: 500
+        })
+
+      assert {:error, {:handler_error, {:handler_exit, :killed}}} = Poller.poll_once(poller)
+
+      assert Poller.get_offset(poller) == 502
+      assert_receive {:handled, 501}
+      refute_receive {:handled, 503}
+
+      Poller.stop(poller)
     end
 
-    test "survives module handler that crashes" do
-      opts = WebhookPlug.init(handler: CrashModuleHandler)
+    test "fn handler returning {:error, reason} halts batch and preserves unadvanced offset" do
+      test_pid = self()
 
-      conn =
-        :post
-        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 304}))
-        |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> WebhookPlug.call(opts)
+      error_handler = fn signal ->
+        if signal.payload["update_id"] == 602 do
+          {:error, :db_write_failure}
+        else
+          send(test_pid, {:handled, signal.payload["update_id"]})
+          :ok
+        end
+      end
 
-      assert conn.status == 200
+      updates = [
+        %{"update_id" => 601, "message" => %{"text" => "msg 601"}},
+        %{"update_id" => 602, "message" => %{"text" => "msg 602"}},
+        %{"update_id" => 603, "message" => %{"text" => "msg 603"}}
+      ]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: error_handler,
+          autostart: false,
+          offset: 600
+        })
+
+      assert {:error, {:handler_error, :db_write_failure}} = Poller.poll_once(poller)
+
+      assert Poller.get_offset(poller) == 602
+      assert_receive {:handled, 601}
+      refute_receive {:handled, 603}
+
+      Poller.stop(poller)
     end
 
-    test "dispatches to module handler with handle_update/1" do
-      opts = WebhookPlug.init(handler: LegacyUpdateModuleHandler)
+    test "fn handler returning :error halts batch and preserves unadvanced offset" do
+      test_pid = self()
 
-      conn =
-        :post
-        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 305}))
-        |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> WebhookPlug.call(opts)
+      error_handler = fn signal ->
+        if signal.payload["update_id"] == 702 do
+          :error
+        else
+          send(test_pid, {:handled, signal.payload["update_id"]})
+          :ok
+        end
+      end
 
-      assert conn.status == 200
-      assert_receive {:legacy_handled, signal}
-      assert signal.payload["update_id"] == 305
+      updates = [
+        %{"update_id" => 701, "message" => %{"text" => "msg 701"}},
+        %{"update_id" => 702, "message" => %{"text" => "msg 702"}},
+        %{"update_id" => 703, "message" => %{"text" => "msg 703"}}
+      ]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: error_handler,
+          autostart: false,
+          offset: 700
+        })
+
+      assert {:error, {:handler_error, :handler_error}} = Poller.poll_once(poller)
+
+      assert Poller.get_offset(poller) == 702
+      assert_receive {:handled, 701}
+      refute_receive {:handled, 703}
+
+      Poller.stop(poller)
     end
 
-    test "ignores module handler that does not implement handler callbacks" do
-      opts = WebhookPlug.init(handler: NonHandlerModule)
+    test "single-update batch with crashing fn handler preserves initial offset" do
+      crashing_handler = fn _sig -> raise "Single crash" end
 
-      conn =
-        :post
-        |> Plug.Test.conn("/webhook", Jason.encode!(%{"update_id" => 306}))
-        |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> WebhookPlug.call(opts)
+      updates = [%{"update_id" => 800, "message" => %{"text" => "msg 800"}}]
 
-      assert conn.status == 200
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: crashing_handler,
+          autostart: false,
+          offset: 750
+        })
+
+      assert {:error, {:handler_error, _}} = Poller.poll_once(poller)
+      # Offset should remain initial 750
+      assert Poller.get_offset(poller) == 750
+
+      Poller.stop(poller)
     end
   end
 
   # ============================================================================
-  # 2. POLLER ADVERSARIAL STRESS TESTS
+  # 4. POLLER R1: MODULE HANDLER FAILURE MODES IN POLL_ONCE
+  # ============================================================================
+
+  describe "Poller R1: Module handler failure modes in poll_once do not advance offset" do
+    test "module handle_signal/1 raising exception preserves offset and reports error" do
+      updates = [%{"update_id" => 901, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: CrashRaiseSignalHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, {:handler_exception, %RuntimeError{}}}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_signal/1 throwing term preserves offset and reports error" do
+      updates = [%{"update_id" => 902, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: CrashThrowSignalHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, {:handler_throw, :module_signal_throw_bomb}}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_signal/1 exiting preserves offset and reports error" do
+      updates = [%{"update_id" => 903, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: CrashExitSignalHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, {:handler_exit, :module_signal_kill}}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_signal/1 returning {:error, reason} preserves offset and reports error" do
+      updates = [%{"update_id" => 904, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: ErrorTupleSignalHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, :database_connection_lost}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_signal/1 returning :error preserves offset and reports error" do
+      updates = [%{"update_id" => 905, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: ErrorAtomSignalHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, :handler_error}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_update/1 raising exception preserves offset and reports error" do
+      updates = [%{"update_id" => 906, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: CrashRaiseUpdateHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, {:handler_exception, %RuntimeError{}}}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_update/1 throwing term preserves offset and reports error" do
+      updates = [%{"update_id" => 907, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: CrashThrowUpdateHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, {:handler_throw, :module_update_throw_bomb}}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_update/1 exiting preserves offset and reports error" do
+      updates = [%{"update_id" => 908, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: CrashExitUpdateHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, {:handler_exit, :module_update_kill}}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_update/1 returning {:error, reason} preserves offset and reports error" do
+      updates = [%{"update_id" => 909, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: ErrorTupleUpdateHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, :upstream_timeout}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "module handle_update/1 returning :error preserves offset and reports error" do
+      updates = [%{"update_id" => 910, "message" => %{"text" => "msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: ErrorAtomUpdateHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:error, {:handler_error, :handler_error}} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 900
+
+      Poller.stop(poller)
+    end
+
+    test "successful module handle_signal/1 advances offset and dispatches" do
+      if Process.whereis(:test_receiver), do: Process.unregister(:test_receiver)
+      Process.register(self(), :test_receiver)
+
+      updates = [%{"update_id" => 920, "message" => %{"text" => "ok signal"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: SuccessSignalHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:ok, [_signal]} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 921
+      assert_receive {:module_signal_ok, sig}
+      assert sig.payload["update_id"] == 920
+
+      Poller.stop(poller)
+      Process.unregister(:test_receiver)
+    end
+
+    test "successful module handle_update/1 advances offset and dispatches" do
+      if Process.whereis(:test_receiver), do: Process.unregister(:test_receiver)
+      Process.register(self(), :test_receiver)
+
+      updates = [%{"update_id" => 930, "message" => %{"text" => "ok update"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: SuccessUpdateHandler,
+          autostart: false,
+          offset: 900
+        })
+
+      assert {:ok, [_signal]} = Poller.poll_once(poller)
+      assert Poller.get_offset(poller) == 931
+      assert_receive {:module_update_ok, sig}
+      assert sig.payload["update_id"] == 930
+
+      Poller.stop(poller)
+      Process.unregister(:test_receiver)
+    end
+  end
+
+  # ============================================================================
+  # 5. POLLER R1: ASYNCHRONOUS POLLING LOOP (handle_info(:poll))
+  # ============================================================================
+
+  describe "Poller R1: Asynchronous polling loop (handle_info(:poll)) handler failures" do
+    test "handle_info(:poll) survives handler crash and preserves offset without terminating GenServer" do
+      crashing_handler = fn _sig -> raise "Async loop crash" end
+
+      updates = [%{"update_id" => 1001, "message" => %{"text" => "async msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: crashing_handler,
+          autostart: false,
+          offset: 1000
+        })
+
+      # Trigger handle_info(:poll)
+      send(poller, :poll)
+      # Give GenServer time to process message
+      Process.sleep(50)
+
+      # GenServer must be alive and offset must remain 1000
+      assert Process.alive?(poller)
+      assert Poller.get_offset(poller) == 1000
+
+      Poller.stop(poller)
+    end
+
+    test "handle_info(:poll) survives handler throw and preserves offset without terminating GenServer" do
+      throwing_handler = fn _sig -> throw(:async_throw) end
+
+      updates = [%{"update_id" => 1002, "message" => %{"text" => "async msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: throwing_handler,
+          autostart: false,
+          offset: 1000
+        })
+
+      send(poller, :poll)
+      Process.sleep(50)
+
+      assert Process.alive?(poller)
+      assert Poller.get_offset(poller) == 1000
+
+      Poller.stop(poller)
+    end
+
+    test "handle_info(:poll) survives handler error tuple and preserves offset" do
+      error_handler = fn _sig -> {:error, :async_error} end
+
+      updates = [%{"update_id" => 1003, "message" => %{"text" => "async msg"}}]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: error_handler,
+          autostart: false,
+          offset: 1000
+        })
+
+      send(poller, :poll)
+      Process.sleep(50)
+
+      assert Process.alive?(poller)
+      assert Poller.get_offset(poller) == 1000
+
+      Poller.stop(poller)
+    end
+  end
+
+  # ============================================================================
+  # 6. POLLER SCHEMA POISON-PILL IMMUNITY (MALFORMED UPDATES ADVANCE OFFSET)
+  # ============================================================================
+
+  describe "Poller: Malformed / unparseable schema updates advance offset to prevent deadlocks" do
+    test "malformed schema updates are dropped while advancing offset" do
+      test_pid = self()
+
+      raw_updates = [
+        # Missing update_id (ignored, cannot determine next offset)
+        %{"message" => %{"text" => "no_id"}},
+        # Corrupted update schema with integer update_id 1100
+        %{"update_id" => 1100, "message" => "invalid_message_string_not_map"},
+        # Corrupted update schema with callback_query as boolean
+        %{"update_id" => 1105, "callback_query" => true},
+        # Valid update 1110
+        %{"update_id" => 1110, "message" => %{"text" => "valid message"}},
+        # Corrupted update schema with poll as number
+        %{"update_id" => 1115, "poll" => 12345},
+        # Valid update 1120
+        %{"update_id" => 1120, "message" => %{"text" => "valid message 2"}}
+      ]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => raw_updates}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: test_pid,
+          autostart: false,
+          offset: 1050
+        })
+
+      assert {:ok, signals} = Poller.poll_once(poller)
+      # Only the 2 valid updates are converted to signals
+      assert length(signals) == 2
+      assert Enum.map(signals, & &1.payload["update_id"]) == [1110, 1120]
+
+      # Offset must advance to max(1050, 1100+1, 1105+1, 1110+1, 1115+1, 1120+1) == 1121!
+      assert Poller.get_offset(poller) == 1121
+
+      assert_receive {:telegram_update, s1}
+      assert s1.payload["update_id"] == 1110
+      assert_receive {:telegram_update, s2}
+      assert s2.payload["update_id"] == 1120
+      refute_receive {:telegram_update, _}
+
+      Poller.stop(poller)
+    end
+
+    test "single malformed update with valid update_id advances offset and returns empty signals" do
+      malformed_update = %{"update_id" => 1200, "message" => 99999}
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => [malformed_update]}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: self(),
+          autostart: false,
+          offset: 1100
+        })
+
+      assert {:ok, []} = Poller.poll_once(poller)
+      # Offset must advance to 1201 to avoid endless retry loop on the unparseable update
+      assert Poller.get_offset(poller) == 1201
+      refute_receive {:telegram_update, _}
+
+      Poller.stop(poller)
+    end
+
+    test "batch containing only malformed updates advances offset to highest update_id + 1" do
+      malformed_batch = [
+        %{"update_id" => 1301, "message" => "bad_1"},
+        %{"update_id" => 1305, "message" => "bad_2"},
+        %{"update_id" => 1303, "message" => "bad_3"}
+      ]
+
+      plug = fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => malformed_batch}))
+      end
+
+      {:ok, poller} =
+        Poller.start_link(%{
+          token: "dummy_tok",
+          plug: plug,
+          handler: self(),
+          autostart: false,
+          offset: 1300
+        })
+
+      assert {:ok, []} = Poller.poll_once(poller)
+      # Offset should be max(1300, 1301+1, 1305+1, 1303+1) == 1306
+      assert Poller.get_offset(poller) == 1306
+      refute_receive {:telegram_update, _}
+
+      Poller.stop(poller)
+    end
+  end
+
+  # ============================================================================
+  # 7. POLLER BATCH CORRUPTION, MONOTONICITY, AND PROPERTY TESTING
   # ============================================================================
 
   describe "Poller: process_updates/3 adversarial inputs" do
@@ -429,7 +1399,6 @@ defmodule Lux.Telegram.AdversarialStressTest do
       assert_receive {:telegram_update, s2}
       assert s2.payload["update_id"] == 110
 
-      # Assert NO error tuples were ever sent to handler
       refute_receive {:telegram_update, {:error, _}}
       refute_receive {:telegram_update, _}
 
@@ -548,45 +1517,6 @@ defmodule Lux.Telegram.AdversarialStressTest do
       assert {:ok, []} = Poller.poll_once(poller)
       assert Poller.get_offset(poller) == 42
       refute_receive {:telegram_update, _}
-
-      Poller.stop(poller)
-    end
-
-    test "survives Poller handler exceptions without crashing or stopping offset progression" do
-      test_pid = self()
-
-      crashing_handler = fn signal ->
-        if signal.payload["update_id"] == 500 do
-          raise "Crash on 500"
-        else
-          send(test_pid, {:handled, signal.payload["update_id"]})
-        end
-      end
-
-      updates = [
-        %{"update_id" => 500, "message" => %{"text" => "Will crash handler"}},
-        %{"update_id" => 501, "message" => %{"text" => "Will succeed"}}
-      ]
-
-      plug = fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(200, Jason.encode!(%{"ok" => true, "result" => updates}))
-      end
-
-      {:ok, poller} =
-        Poller.start_link(%{
-          token: "dummy_tok",
-          plug: plug,
-          handler: crashing_handler,
-          autostart: false,
-          offset: 400
-        })
-
-      assert {:ok, signals} = Poller.poll_once(poller)
-      assert length(signals) == 2
-      assert Poller.get_offset(poller) == 502
-      assert_receive {:handled, 501}
 
       Poller.stop(poller)
     end

@@ -152,6 +152,8 @@ defmodule Lux.Lens do
     {path_params, params} = if is_map(params), do: Map.pop(params, :path_params, []), else: {[], params}
 
     opts_list = if is_map(opts), do: Map.to_list(opts), else: opts || []
+    {with_after_focus, opts_list} = Keyword.pop(opts_list, :with_after_focus, true)
+    after_focus_fn = if with_after_focus, do: after_focus, else: fn body -> {:ok, body} end
 
     [url: override_url, headers: headers, path_params: path_params, max_retries: 2]
     |> Keyword.merge(Application.get_env(:lux, :req_options, []))
@@ -160,7 +162,7 @@ defmodule Lux.Lens do
     |> Req.request([method: method] ++ body_or_params(method, params))
     |> case do
       {:ok, %{status: 200, body: body}} ->
-        after_focus.(body)
+        after_focus_fn.(body)
 
       {:ok, response} ->
         {:error, response.body}

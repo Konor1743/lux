@@ -213,17 +213,5 @@ defmodule Lux.Signals.TelegramUpdate do
     end
   end
 
-  defp get_field(map, key) when is_map(map) and is_binary(key) do
-    case Map.fetch(map, key) do
-      {:ok, val} -> val
-      :error ->
-        try do
-          Map.get(map, String.to_existing_atom(key))
-        rescue
-          _ -> nil
-        end
-    end
-  end
-
   defp get_field(_, _), do: nil
 end
