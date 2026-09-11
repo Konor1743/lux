@@ -161,6 +161,10 @@ defmodule Lux.LLM.Telemetry do
     end
   end
 
+  @prompt_keys [:prompt_tokens, "prompt_tokens", "promptTokenCount", "input_tokens", :input_tokens]
+  @completion_keys [:completion_tokens, "completion_tokens", "candidatesTokenCount", "output_tokens", :output_tokens]
+  @total_keys [:total_tokens, "total_tokens", "totalTokenCount"]
+
   @doc """
   Normalizes raw token usage maps from various provider response formats into standard atom-keyed maps.
   """
@@ -170,34 +174,9 @@ defmodule Lux.LLM.Telemetry do
           total_tokens: non_neg_integer()
         }
   def normalize_usage(usage) when is_map(usage) do
-    prompt_raw =
-      Map.get(usage, :prompt_tokens) ||
-        Map.get(usage, "prompt_tokens") ||
-        Map.get(usage, "promptTokenCount") ||
-        Map.get(usage, "input_tokens") ||
-        Map.get(usage, :input_tokens)
-
-    completion_raw =
-      Map.get(usage, :completion_tokens) ||
-        Map.get(usage, "completion_tokens") ||
-        Map.get(usage, "candidatesTokenCount") ||
-        Map.get(usage, "output_tokens") ||
-        Map.get(usage, :output_tokens)
-
-    total_raw =
-      Map.get(usage, :total_tokens) ||
-        Map.get(usage, "total_tokens") ||
-        Map.get(usage, "totalTokenCount")
-
-    prompt = parse_integer(prompt_raw)
-    completion = parse_integer(completion_raw)
-
-    total =
-      if not is_nil(total_raw) and total_raw != "" do
-        parse_integer(total_raw)
-      else
-        prompt + completion
-      end
+    prompt = parse_integer(find_first_val(usage, @prompt_keys))
+    completion = parse_integer(find_first_val(usage, @completion_keys))
+    total = resolve_total(usage, prompt, completion)
 
     %{
       prompt_tokens: max(0, prompt),
@@ -207,6 +186,17 @@ defmodule Lux.LLM.Telemetry do
   end
 
   def normalize_usage(_), do: %{prompt_tokens: 0, completion_tokens: 0, total_tokens: 0}
+
+  defp find_first_val(map, keys) do
+    Enum.find_value(keys, fn key -> Map.get(map, key) end)
+  end
+
+  defp resolve_total(usage, prompt, completion) do
+    case find_first_val(usage, @total_keys) do
+      val when not is_nil(val) and val != "" -> parse_integer(val)
+      _ -> prompt + completion
+    end
+  end
 
   defp parse_integer(val) when is_integer(val), do: val
   defp parse_integer(val) when is_float(val), do: trunc(val)
@@ -238,12 +228,10 @@ defmodule Lux.LLM.Telemetry do
     reg = Map.get(opts_map, :registry_name, ProviderRegistry)
 
     pricing =
-      cond do
-        Map.has_key?(opts_map, :cost_per_1k_prompt_tokens) ->
-          {Map.get(opts_map, :cost_per_1k_prompt_tokens, 0.0), Map.get(opts_map, :cost_per_1k_completion_tokens, 0.0)}
-
-        true ->
-          lookup_model_pricing(provider_id, model_id, reg)
+      if Map.has_key?(opts_map, :cost_per_1k_prompt_tokens) do
+        {Map.get(opts_map, :cost_per_1k_prompt_tokens, 0.0), Map.get(opts_map, :cost_per_1k_completion_tokens, 0.0)}
+      else
+        lookup_model_pricing(provider_id, model_id, reg)
       end
 
     {prompt_rate, completion_rate} = pricing

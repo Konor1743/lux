@@ -177,7 +177,7 @@ defmodule Lux.LLM.EmpiricalChallengerTest do
         provider_id: :strict_provider,
         strategy: nil,
         capabilities: [],
-        estimated_prompt_tokens: -99999,
+        estimated_prompt_tokens: -99_999,
         estimated_completion_tokens: 500,
         fallback_on_all_errors: "maybe",
         primary: nil,

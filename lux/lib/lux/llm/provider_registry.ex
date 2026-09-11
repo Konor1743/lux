@@ -106,30 +106,30 @@ defmodule Lux.LLM.ProviderRegistry do
   @impl true
   def init(opts) do
     initial_providers = Keyword.get(opts, :providers, default_providers())
-
-    providers_map =
-      Enum.reduce(initial_providers, %{}, fn
-        %ProviderConfig{} = config, acc ->
-          Map.put(acc, config.id, config)
-
-        module, acc when is_atom(module) ->
-          if Code.ensure_loaded?(module) and function_exported?(module, :id, 0) do
-            models = if function_exported?(module, :models, 0), do: module.models(), else: []
-
-            config = %ProviderConfig{
-              id: module.id(),
-              module: module,
-              models: models,
-              status: :active
-            }
-
-            Map.put(acc, config.id, config)
-          else
-            acc
-          end
-      end)
+    providers_map = Enum.reduce(initial_providers, %{}, &init_provider_entry/2)
 
     {:ok, %{providers: providers_map}}
+  end
+
+  defp init_provider_entry(%ProviderConfig{} = config, acc) do
+    Map.put(acc, config.id, config)
+  end
+
+  defp init_provider_entry(module, acc) when is_atom(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :id, 0) do
+      models = if function_exported?(module, :models, 0), do: module.models(), else: []
+
+      config = %ProviderConfig{
+        id: module.id(),
+        module: module,
+        models: models,
+        status: :active
+      }
+
+      Map.put(acc, config.id, config)
+    else
+      acc
+    end
   end
 
   @impl true

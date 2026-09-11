@@ -124,15 +124,16 @@ defmodule Lux.LLM.Fallback do
 
         new_history = [attempt_record | history]
 
-        if remaining != [] and fallback_error?(reason, opts) do
-          execute_specs(remaining, prompt, tools, opts, new_history)
-        else
-          if remaining == [] do
+        cond do
+          remaining != [] and fallback_error?(reason, opts) ->
+            execute_specs(remaining, prompt, tools, opts, new_history)
+
+          remaining == [] ->
             {:error, {:all_fallbacks_failed, Enum.reverse(new_history)}}
-          else
+
+          true ->
             # Non-retryable error encountered
             {:error, reason}
-          end
         end
     end
   end

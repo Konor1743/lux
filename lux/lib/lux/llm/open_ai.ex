@@ -96,25 +96,7 @@ defmodule Lux.LLM.OpenAI do
 
   @impl Lux.LLM.Provider
   def call(prompt, tools, config) do
-    opts_map =
-      cond do
-        is_struct(config) -> Map.from_struct(config)
-        is_map(config) -> config
-        is_list(config) -> Enum.into(config, %{})
-        true -> %{}
-      end
-
-    config =
-      struct(
-        Config,
-        Map.merge(
-          %{
-            model: Application.get_env(:lux, :open_ai_models)[:default] || "gpt-4",
-            api_key: Application.get_env(:lux, :api_keys)[:openai]
-          },
-          opts_map
-        )
-      )
+    config = normalize_config(config)
 
     messages = config.messages ++ build_messages(prompt)
     tools_config = build_tools_config(tools)
@@ -141,20 +123,38 @@ defmodule Lux.LLM.OpenAI do
     |> Keyword.merge(Application.get_env(:lux, __MODULE__, []))
     |> Req.new()
     |> Req.post()
-    |> case do
-      {:ok, %{status: 200} = response} ->
-        handle_response(response, config)
-
-      {:ok, %{status: 401}} ->
-        {:error, :invalid_api_key}
-
-      {:ok, %{status: status, body: %{"error" => %{"message" => message}}}} ->
-        {:error, {status, message}}
-
-      {:error, error} ->
-        handle_error(error)
-    end
+    |> handle_req_response(config)
   end
+
+  defp normalize_config(config) do
+    opts_map =
+      case config do
+        %_{} -> Map.from_struct(config)
+        %{} -> config
+        list when is_list(list) -> Enum.into(list, %{})
+        _ -> %{}
+      end
+
+    struct(
+      Config,
+      Map.merge(
+        %{
+          model: Application.get_env(:lux, :open_ai_models)[:default] || "gpt-4",
+          api_key: Application.get_env(:lux, :api_keys)[:openai]
+        },
+        opts_map
+      )
+    )
+  end
+
+  defp handle_req_response({:ok, %{status: 200} = response}, config), do: handle_response(response, config)
+  defp handle_req_response({:ok, %{status: 401}}, _config), do: {:error, :invalid_api_key}
+
+  defp handle_req_response({:ok, %{status: status, body: %{"error" => %{"message" => message}}}}, _config) do
+    {:error, {status, message}}
+  end
+
+  defp handle_req_response({:error, error}, _config), do: handle_error(error)
 
   defp build_messages(prompt) do
     [%{role: "user", content: prompt}]

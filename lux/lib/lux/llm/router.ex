@@ -78,46 +78,15 @@ defmodule Lux.LLM.Router do
 
       _pid ->
         try do
-          req_caps = Map.get(opts_map, :capabilities, [])
-          req_caps = if tools != [] and :tools not in req_caps, do: [:tools | req_caps], else: req_caps
-
-          filter_opts = [
-            registry_name: registry_name,
-            capabilities: req_caps,
-            status: :active
-          ]
-
-          filter_opts =
-            if provider_id = Map.get(opts_map, :provider_id) do
-              Keyword.put(filter_opts, :provider_id, provider_id)
-            else
-              filter_opts
-            end
-
-          models = ProviderRegistry.list_models(filter_opts)
-
-          models =
-            if target_model = Map.get(opts_map, :model) do
-              Enum.filter(models, &(&1.id == target_model))
-            else
-              models
-            end
+          filter_opts = build_filter_opts(opts_map, tools, registry_name)
+          models = ProviderRegistry.list_models(filter_opts) |> filter_by_target_model(opts_map)
 
           case models do
             [] ->
               {:error, :no_matching_model}
 
             candidates ->
-              strategy = Map.get(opts_map, :strategy, :cheapest)
-              selected_model = select_candidate(candidates, strategy, opts_map)
-
-              case ProviderRegistry.get_provider(selected_model.provider_id, registry_name: registry_name) do
-                {:ok, provider_config} ->
-                  {:ok, {provider_config, selected_model}}
-
-                {:error, reason} ->
-                  {:error, {:provider_not_found, selected_model.provider_id, reason}}
-              end
+              resolve_selected_candidate(candidates, opts_map, registry_name)
           end
         catch
           :exit, {:noproc, _} ->
@@ -126,6 +95,42 @@ defmodule Lux.LLM.Router do
           :exit, :noproc ->
             {:error, :registry_not_running}
         end
+    end
+  end
+
+  defp build_filter_opts(opts_map, tools, registry_name) do
+    req_caps = Map.get(opts_map, :capabilities, [])
+    req_caps = if tools != [] and :tools not in req_caps, do: [:tools | req_caps], else: req_caps
+
+    base_opts = [
+      registry_name: registry_name,
+      capabilities: req_caps,
+      status: :active
+    ]
+
+    case Map.get(opts_map, :provider_id) do
+      nil -> base_opts
+      provider_id -> Keyword.put(base_opts, :provider_id, provider_id)
+    end
+  end
+
+  defp filter_by_target_model(models, opts_map) do
+    case Map.get(opts_map, :model) do
+      nil -> models
+      target_model -> Enum.filter(models, &(&1.id == target_model))
+    end
+  end
+
+  defp resolve_selected_candidate(candidates, opts_map, registry_name) do
+    strategy = Map.get(opts_map, :strategy, :cheapest)
+    selected_model = select_candidate(candidates, strategy, opts_map)
+
+    case ProviderRegistry.get_provider(selected_model.provider_id, registry_name: registry_name) do
+      {:ok, provider_config} ->
+        {:ok, {provider_config, selected_model}}
+
+      {:error, reason} ->
+        {:error, {:provider_not_found, selected_model.provider_id, reason}}
     end
   end
 

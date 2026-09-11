@@ -152,60 +152,8 @@ defmodule Lux.LLM.OpenRouter do
 
   @impl Lux.LLM.Provider
   def call(prompt, tools, config) do
-    opts_map =
-      cond do
-        is_struct(config) -> Map.from_struct(config)
-        is_map(config) -> config
-        is_list(config) -> Enum.into(config, %{})
-        true -> %{}
-      end
-
-    default_model = resolve_model_name(:default) || "openai/gpt-4o-mini"
-
-    default_api_key =
-      case Application.get_env(:lux, :api_keys) do
-        keys when is_list(keys) -> keys[:openrouter]
-        _ -> nil
-      end
-
-    config =
-      struct(
-        Config,
-        Map.merge(
-          %{
-            model: default_model,
-            api_key: default_api_key
-          },
-          opts_map
-        )
-      )
-
-    messages = config.messages ++ build_messages(prompt)
-    tools_config = build_tools_config(tools)
-
-    resolved_model = resolve_model_name(config.model)
-
-    resolved_models =
-      if is_list(config.models) do
-        Enum.map(config.models, &resolve_model_name/1)
-      else
-        nil
-      end
-
-    body =
-      %{
-        messages: messages,
-        temperature: config.temperature,
-        frequency_penalty: config.frequency_penalty
-      }
-      |> maybe_add_model(resolved_model, resolved_models)
-      |> maybe_add_provider(config.provider)
-      |> maybe_add_max_tokens(config.max_tokens)
-      |> maybe_add_tools(tools_config, config.tool_choice)
-      |> maybe_add_response_format(config)
-      |> maybe_add_user(config.user)
-      |> maybe_add_n(config.n)
-
+    config = normalize_config(config)
+    body = build_request_body(config, prompt, tools)
     headers = build_headers(config)
 
     req_options =
@@ -217,44 +165,102 @@ defmodule Lux.LLM.OpenRouter do
       ]
       |> Keyword.merge(Application.get_env(:lux, __MODULE__, []))
 
-    case post_with_retry(req_options, config.max_retries, config) do
-      {:ok, %{status: 200} = response} ->
-        handle_response(response, config)
+    post_with_retry(req_options, config.max_retries, config)
+    |> handle_retry_response(config)
+  end
 
-      {:ok, %{status: 401}} ->
-        {:error, :invalid_api_key}
+  defp normalize_config(config) do
+    opts_map =
+      case config do
+        %_{} -> Map.from_struct(config)
+        %{} -> config
+        list when is_list(list) -> Enum.into(list, %{})
+        _ -> %{}
+      end
 
-      {:ok, %{status: status, body: body, headers: resp_headers}} when status in [429, 503] ->
-        {:error, {_, msg, meta}} = decode_error(body)
-        retry_after = get_header_value(resp_headers, "retry-after")
-        ratelimit_remaining = get_header_value(resp_headers, "x-ratelimit-remaining")
+    default_model = resolve_model_name(:default) || "openai/gpt-4o-mini"
 
-        meta =
-          meta
-          |> Map.put(:retry_after, retry_after)
-          |> Map.put(:ratelimit_remaining, ratelimit_remaining)
-          |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-          |> Map.new()
+    default_api_key =
+      case Application.get_env(:lux, :api_keys) do
+        keys when is_list(keys) -> keys[:openrouter]
+        _ -> nil
+      end
 
-        if meta == %{} do
-          {:error, {status, msg}}
-        else
-          {:error, {status, msg, meta}}
-        end
+    struct(
+      Config,
+      Map.merge(
+        %{
+          model: default_model,
+          api_key: default_api_key
+        },
+        opts_map
+      )
+    )
+  end
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {code, msg, meta}} = decode_error(body)
-        st = status || code
+  defp build_request_body(config, prompt, tools) do
+    messages = config.messages ++ build_messages(prompt)
+    tools_config = build_tools_config(tools)
+    resolved_model = resolve_model_name(config.model)
 
-        if is_map(meta) and map_size(meta) > 0 do
-          {:error, {st, msg, meta}}
-        else
-          {:error, {st, msg}}
-        end
+    resolved_models =
+      if is_list(config.models), do: Enum.map(config.models, &resolve_model_name/1), else: nil
 
-      {:error, error} ->
-        handle_error(error)
+    %{
+      messages: messages,
+      temperature: config.temperature,
+      frequency_penalty: config.frequency_penalty
+    }
+    |> maybe_add_model(resolved_model, resolved_models)
+    |> maybe_add_provider(config.provider)
+    |> maybe_add_max_tokens(config.max_tokens)
+    |> maybe_add_tools(tools_config, config.tool_choice)
+    |> maybe_add_response_format(config)
+    |> maybe_add_user(config.user)
+    |> maybe_add_n(config.n)
+  end
+
+  defp handle_retry_response({:ok, %{status: 200} = response}, config) do
+    handle_response(response, config)
+  end
+
+  defp handle_retry_response({:ok, %{status: 401}}, _config) do
+    {:error, :invalid_api_key}
+  end
+
+  defp handle_retry_response({:ok, %{status: status, body: body, headers: resp_headers}}, _config)
+       when status in [429, 503] do
+    {:error, {_, msg, meta}} = decode_error(body)
+    retry_after = get_header_value(resp_headers, "retry-after")
+    ratelimit_remaining = get_header_value(resp_headers, "x-ratelimit-remaining")
+
+    meta =
+      meta
+      |> Map.put(:retry_after, retry_after)
+      |> Map.put(:ratelimit_remaining, ratelimit_remaining)
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.new()
+
+    if meta == %{} do
+      {:error, {status, msg}}
+    else
+      {:error, {status, msg, meta}}
     end
+  end
+
+  defp handle_retry_response({:ok, %{status: status, body: body}}, _config) do
+    {:error, {code, msg, meta}} = decode_error(body)
+    st = status || code
+
+    if is_map(meta) and map_size(meta) > 0 do
+      {:error, {st, msg, meta}}
+    else
+      {:error, {st, msg}}
+    end
+  end
+
+  defp handle_retry_response({:error, error}, _config) do
+    handle_error(error)
   end
 
   defp build_messages(prompt) when is_binary(prompt) do
@@ -333,41 +339,26 @@ defmodule Lux.LLM.OpenRouter do
   defp build_headers(config) do
     resolved_api_key = Lux.Config.resolve(config.api_key)
 
-    site_url =
-      cond do
-        not is_nil(config.http_referer) and config.http_referer != "" -> Lux.Config.resolve(config.http_referer)
-        not is_nil(config.site_url) and config.site_url != "" -> Lux.Config.resolve(config.site_url)
-        true -> nil
-      end
-
-    site_name =
-      cond do
-        not is_nil(config.openrouter_title) and config.openrouter_title != "" -> Lux.Config.resolve(config.openrouter_title)
-        not is_nil(config.site_name) and config.site_name != "" -> Lux.Config.resolve(config.site_name)
-        true -> nil
-      end
-
-    headers = [
+    [
       {"Authorization", "Bearer #{resolved_api_key}"},
       {"Content-Type", "application/json"}
     ]
-
-    headers =
-      if is_binary(site_url) and site_url != "" do
-        headers ++ [{"HTTP-Referer", site_url}]
-      else
-        headers
-      end
-
-    headers =
-      if is_binary(site_name) and site_name != "" do
-        headers ++ [{"X-OpenRouter-Title", site_name}]
-      else
-        headers
-      end
-
-    headers
+    |> maybe_append_header("HTTP-Referer", resolve_first_present([config.http_referer, config.site_url]))
+    |> maybe_append_header("X-OpenRouter-Title", resolve_first_present([config.openrouter_title, config.site_name]))
   end
+
+  defp resolve_first_present(candidates) do
+    Enum.find_value(candidates, fn
+      val when not is_nil(val) and val != "" -> Lux.Config.resolve(val)
+      _ -> nil
+    end)
+  end
+
+  defp maybe_append_header(headers, header_name, val) when is_binary(val) and val != "" do
+    headers ++ [{header_name, val}]
+  end
+
+  defp maybe_append_header(headers, _header_name, _val), do: headers
 
   def tool_to_function({:python, path}) do
     path
@@ -657,12 +648,9 @@ defmodule Lux.LLM.OpenRouter do
   end
 
   defp get_header_value(headers, name) when is_list(headers) or is_map(headers) do
-    headers
-    |> Enum.find_value(fn
+    Enum.find_value(headers, fn
       {k, v} when is_binary(k) ->
-        if String.downcase(k) == name do
-          if is_list(v), do: List.first(v), else: v
-        end
+        if String.downcase(k) == name, do: extract_header_val(v)
 
       _ ->
         nil
@@ -670,6 +658,9 @@ defmodule Lux.LLM.OpenRouter do
   end
 
   defp get_header_value(_, _), do: nil
+
+  defp extract_header_val(v) when is_list(v), do: List.first(v)
+  defp extract_header_val(v), do: v
 
   defp normalize_usage(%{} = u) do
     cost =

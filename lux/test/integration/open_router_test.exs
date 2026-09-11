@@ -3,9 +3,7 @@ defmodule Lux.Integration.LLM.OpenRouterTest do
   use IntegrationCase, async: true
 
   alias Lux.LLM.OpenRouter
-  alias Lux.LLM.ResponseSignal
   alias Lux.Signal
-  alias Lux.SignalSchema
 
   describe "simple text request and response, no tools or structure output" do
     setup do

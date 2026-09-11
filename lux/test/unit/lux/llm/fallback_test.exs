@@ -5,6 +5,45 @@ defmodule Lux.LLM.FallbackTest do
   alias Lux.LLM.ResponseSignal
   alias Lux.Signal
 
+  defmodule StrictConfig do
+    defstruct [:model, :api_key, :endpoint]
+  end
+
+  defmodule StrictProvider do
+    @behaviour Lux.LLM.Provider
+
+    @impl true
+    def id, do: :strict_provider
+
+    @impl true
+    def models do
+      [
+        %Lux.LLM.ModelConfig{
+          id: "strict-model",
+          name: "Strict Model",
+          provider_id: :strict_provider,
+          cost_per_1k_prompt_tokens: 0.001,
+          cost_per_1k_completion_tokens: 0.002
+        }
+      ]
+    end
+
+    @impl true
+    def call(prompt, _tools, opts) do
+      _config = struct!(StrictConfig, opts)
+
+      payload = %{
+        content: %{"response" => "strict response for #{prompt}"},
+        model: "strict-model",
+        finish_reason: "stop",
+        tool_calls: nil,
+        tool_calls_results: nil
+      }
+
+      {:ok, Lux.Signal.new(%{schema_id: ResponseSignal, payload: payload, metadata: %{}})}
+    end
+  end
+
   defp make_ok_signal(model_name) do
     payload = %{
       content: %{"answer" => "ok from #{model_name}"},
@@ -116,7 +155,7 @@ defmodule Lux.LLM.FallbackTest do
   describe "AC2: Fallback integration with control options" do
     test "Fallback.call with router spec and control options does not raise KeyError on strict provider" do
       reg_name = :"ac2_fallback_strict_#{System.unique_integer([:positive])}"
-      {:ok, _pid} = Lux.LLM.ProviderRegistry.start_link(name: reg_name, providers: [Lux.LLM.RouterTest.StrictProvider])
+      {:ok, _pid} = Lux.LLM.ProviderRegistry.start_link(name: reg_name, providers: [StrictProvider])
 
       control_opts = [
         primary: {Lux.LLM.Router, [registry_name: reg_name, provider_id: :strict_provider, strategy: :cheapest]},
@@ -169,7 +208,7 @@ defmodule Lux.LLM.FallbackTest do
 
       config = %Lux.LLM.ProviderConfig{
         id: :strict_provider,
-        module: Lux.LLM.RouterTest.StrictProvider,
+        module: StrictProvider,
         api_key: nil
       }
       {:ok, _pid} = Lux.LLM.ProviderRegistry.start_link(name: reg_name, providers: [config])
@@ -190,7 +229,7 @@ defmodule Lux.LLM.FallbackTest do
     test "Fallback.call with %ProviderConfig{} spec filters control options and preserves credentials" do
       config = %Lux.LLM.ProviderConfig{
         id: :strict_provider,
-        module: Lux.LLM.RouterTest.StrictProvider,
+        module: StrictProvider,
         api_key: nil
       }
 

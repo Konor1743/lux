@@ -88,12 +88,21 @@ defmodule Lux.LLM.Gemini do
 
   @impl Lux.LLM.Provider
   def call(prompt, tools, config) do
+    config = normalize_config(config)
+    body = build_request_body(config, prompt, tools)
+    req_opts = build_req_opts(config, body)
+
+    Req.post(req_opts)
+    |> handle_req_response(config)
+  end
+
+  defp normalize_config(config) do
     opts_map =
-      cond do
-        is_struct(config) -> Map.from_struct(config)
-        is_map(config) -> config
-        is_list(config) -> Enum.into(config, %{})
-        true -> %{}
+      case config do
+        %_{} -> Map.from_struct(config)
+        %{} -> config
+        list when is_list(list) -> Enum.into(list, %{})
+        _ -> %{}
       end
 
     default_api_key =
@@ -102,71 +111,72 @@ defmodule Lux.LLM.Gemini do
         _ -> nil
       end
 
-    config =
-      struct(
-        Config,
-        Map.merge(
-          %{
-            model: Application.get_env(:lux, :gemini_models)[:default] || "gemini-1.5-flash",
-            api_key: default_api_key
-          },
-          opts_map
-        )
+    struct(
+      Config,
+      Map.merge(
+        %{
+          model: Application.get_env(:lux, :gemini_models)[:default] || "gemini-1.5-flash",
+          api_key: default_api_key
+        },
+        opts_map
       )
+    )
+  end
 
+  defp build_request_body(config, prompt, tools) do
+    {system_instruction, contents} = build_contents(prompt, config)
+    tools_config = build_tools_config(tools)
+
+    %{
+      contents: contents,
+      generationConfig: build_generation_config(config)
+    }
+    |> maybe_add_system_instruction(system_instruction)
+    |> maybe_add_tools(tools_config)
+  end
+
+  defp build_req_opts(config, body) do
     resolved_model = Lux.Config.resolve(config.model)
     resolved_api_key = Lux.Config.resolve(config.api_key)
 
     url =
       "#{Lux.Config.resolve(config.endpoint || @default_endpoint)}/#{resolved_model}:generateContent?key=#{resolved_api_key}"
 
-    {system_instruction, contents} = build_contents(prompt, config)
-    tools_config = build_tools_config(tools)
-
-    body =
-      %{
-        contents: contents,
-        generationConfig: build_generation_config(config)
-      }
-      |> maybe_add_system_instruction(system_instruction)
-      |> maybe_add_tools(tools_config)
-
     req_opts =
       [
         url: url,
         json: body,
-        headers: [
-          {"Content-Type", "application/json"}
-        ],
+        headers: [{"Content-Type", "application/json"}],
         receive_timeout: config.receive_timeout
       ]
       |> Keyword.merge(Application.get_env(:lux, __MODULE__, []))
 
-    req_opts =
-      if config.plug do
-        Keyword.put(req_opts, :plug, config.plug)
-      else
-        req_opts
-      end
-
-    Req.post(req_opts)
-    |> case do
-      {:ok, %{status: 200} = response} ->
-        handle_response(response, config)
-
-      {:ok, %{status: 401}} ->
-        {:error, :invalid_api_key}
-
-      {:ok, %{status: status, body: %{"error" => %{"message" => message}}}} ->
-        {:error, {status, message}}
-
-      {:ok, %{status: status, body: body}} ->
-        message = if is_map(body), do: Map.get(body, "message", inspect(body)), else: inspect(body)
-        {:error, {status, message}}
-
-      {:error, error} ->
-        handle_error(error)
+    if config.plug do
+      Keyword.put(req_opts, :plug, config.plug)
+    else
+      req_opts
     end
+  end
+
+  defp handle_req_response({:ok, %{status: 200} = response}, config) do
+    handle_response(response, config)
+  end
+
+  defp handle_req_response({:ok, %{status: 401}}, _config) do
+    {:error, :invalid_api_key}
+  end
+
+  defp handle_req_response({:ok, %{status: status, body: %{"error" => %{"message" => message}}}}, _config) do
+    {:error, {status, message}}
+  end
+
+  defp handle_req_response({:ok, %{status: status, body: body}}, _config) do
+    message = if is_map(body), do: Map.get(body, "message", inspect(body)), else: inspect(body)
+    {:error, {status, message}}
+  end
+
+  defp handle_req_response({:error, error}, _config) do
+    handle_error(error)
   end
 
   defp build_contents(prompt, %Config{messages: messages, system: system}) when is_binary(prompt) do

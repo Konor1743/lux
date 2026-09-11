@@ -200,7 +200,7 @@ defmodule Lux.LLM.OpenRouterTest do
 
         Req.Test.json(conn, %{
           "id" => "gen-12345",
-          "created" => 1700000000,
+          "created" => 1_700_000_000,
           "model" => "openai/gpt-4o-mini",
           "choices" => [
             %{
@@ -230,7 +230,7 @@ defmodule Lux.LLM.OpenRouterTest do
                 },
                 metadata: %{
                   id: "gen-12345",
-                  created: 1700000000,
+                  created: 1_700_000_000,
                   usage: %{
                     "prompt_tokens" => 12,
                     "completion_tokens" => 8,

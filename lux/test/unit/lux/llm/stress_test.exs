@@ -130,7 +130,7 @@ defmodule Lux.LLM.StressTest do
       assert model.id == "success-model"
 
       # Non-atom / non-function strategy falls back to :cheapest
-      assert {:ok, {_prov, model}} = Router.route("hello", [], registry_name: reg, strategy: 12345)
+      assert {:ok, {_prov, model}} = Router.route("hello", [], registry_name: reg, strategy: 12_345)
       assert model.id == "success-model"
 
       # Function with 2 arity (invalid for select_candidate) falls back to :cheapest
