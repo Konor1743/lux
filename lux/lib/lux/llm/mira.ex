@@ -3,16 +3,37 @@ defmodule Lux.LLM.Mira do
   Mira Network LLM implementation that supports passing Beams, Prisms, and Lenses as tools.
   """
 
-  @behaviour Lux.LLM
+  @behaviour Lux.LLM.Provider
 
   alias Lux.Beam
   alias Lux.Lens
+  alias Lux.LLM.ModelConfig
   alias Lux.LLM.ResponseSignal
   alias Lux.Prism
 
   require Beam
   require Lens
   require Logger
+
+  @default_endpoint "https://api.mira.network/v1/chat/completions"
+
+  @impl Lux.LLM.Provider
+  def id, do: :mira
+
+  @impl Lux.LLM.Provider
+  def models do
+    [
+      %ModelConfig{
+        id: "llama-3.1-8b-instruct",
+        name: "Llama 3.1 8B Instruct (Mira)",
+        provider_id: :mira,
+        cost_per_1k_prompt_tokens: 0.0002,
+        cost_per_1k_completion_tokens: 0.0002,
+        capabilities: [:tools],
+        context_window: 8192
+      }
+    ]
+  end
 
   defmodule Config do
     @moduledoc """
@@ -37,9 +58,9 @@ defmodule Lux.LLM.Mira do
               messages: []
   end
 
-  @impl true
+  @impl Lux.LLM.Provider
   def call(prompt, tools, config) do
-    config = struct(Config, config)
+    config = normalize_config(config)
 
     messages = config.messages ++ build_messages(prompt)
     tools_config = build_tools_config(tools)
@@ -55,7 +76,7 @@ defmodule Lux.LLM.Mira do
       |> maybe_add_tools(tools_config)
 
     [
-      url: config.endpoint,
+      url: Lux.Config.resolve(config.endpoint || @default_endpoint),
       json: body,
       headers: [
         {"Authorization", "Bearer #{Lux.Config.resolve(config.api_key)}"},
@@ -85,6 +106,27 @@ defmodule Lux.LLM.Mira do
       {:error, error} ->
         handle_error(error)
     end
+  end
+
+  defp normalize_config(config) do
+    opts_map =
+      case config do
+        %_{} -> Map.from_struct(config)
+        %{} -> config
+        list when is_list(list) -> Enum.into(list, %{})
+        _ -> %{}
+      end
+
+    struct(
+      Config,
+      Map.merge(
+        %{
+          model: "llama-3.1-8b-instruct",
+          api_key: Application.get_env(:lux, :api_keys)[:mira]
+        },
+        opts_map
+      )
+    )
   end
 
   defp build_messages(prompt) do

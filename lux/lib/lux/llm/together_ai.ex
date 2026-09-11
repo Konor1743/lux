@@ -77,44 +77,57 @@ defmodule Lux.LLM.TogetherAI do
 
     @impl Lux.LLM.Provider
     def call(prompt, tools, config) do
+      config = normalize_config(config)
+      body = build_request_body(config, prompt, tools)
+
+      config
+      |> build_req_opts(body)
+      |> Req.new()
+      |> Req.post()
+      |> handle_req_response(config)
+    end
+
+    defp normalize_config(config) do
       opts_map =
-        cond do
-          is_struct(config) -> Map.from_struct(config)
-          is_map(config) -> config
-          is_list(config) -> Enum.into(config, %{})
-          true -> %{}
+        case config do
+          %_{} -> Map.from_struct(config)
+          %{} -> config
+          list when is_list(list) -> Enum.into(list, %{})
+          _ -> %{}
         end
 
-      config =
-        struct(
-          Config,
-          Map.merge(
-            %{
-              model: Application.get_env(:lux, :together_ai_models)[:default] || "mistral-7b-instruct",
-              api_key: Application.get_env(:lux, :api_keys)[:together]
-            },
-            opts_map
-          )
+      struct(
+        Config,
+        Map.merge(
+          %{
+            model: Application.get_env(:lux, :together_ai_models)[:default] || "mistral-7b-instruct",
+            api_key: Application.get_env(:lux, :api_keys)[:together]
+          },
+          opts_map
         )
+      )
+    end
 
+    defp build_request_body(config, prompt, tools) do
       messages = config.messages ++ build_messages(prompt)
       tools_config = build_tools_config(tools)
 
-      body =
-        %{
-          model: Lux.Config.resolve(config.model),
-          messages: messages,
-          temperature: config.temperature,
-          top_p: config.top_p,
-          top_k: config.top_k,
-          max_tokens: config.max_tokens,
-          repetition_penalty: config.repetition_penalty,
-          stop: config.stop
-        }
-        |> maybe_add_tools(tools_config)
+      %{
+        model: Lux.Config.resolve(config.model),
+        messages: messages,
+        temperature: config.temperature,
+        top_p: config.top_p,
+        top_k: config.top_k,
+        max_tokens: config.max_tokens,
+        repetition_penalty: config.repetition_penalty,
+        stop: config.stop
+      }
+      |> maybe_add_tools(tools_config)
+    end
 
+    defp build_req_opts(config, body) do
       [
-        url: @endpoint,
+        url: Lux.Config.resolve(config.endpoint || @endpoint),
         json: body,
         headers: [
           {"Authorization", "Bearer #{Lux.Config.resolve(config.api_key)}"},
@@ -122,21 +135,22 @@ defmodule Lux.LLM.TogetherAI do
         ]
       ]
       |> Keyword.merge(Application.get_env(:lux, __MODULE__, []))
-      |> Req.new()
-      |> Req.post()
-      |> case do
-        {:ok, %{status: 200} = response} ->
-          handle_response(response, config)
+    end
 
-        {:ok, %{status: 401}} ->
-          {:error, :invalid_api_key}
+    defp handle_req_response({:ok, %{status: 200} = response}, config) do
+      handle_response(response, config)
+    end
 
-        {:ok, %{status: status, body: %{"error" => message}}} ->
-          {:error, {status, message}}
+    defp handle_req_response({:ok, %{status: 401}}, _config) do
+      {:error, :invalid_api_key}
+    end
 
-        {:error, error} ->
-          handle_error(error)
-      end
+    defp handle_req_response({:ok, %{status: status, body: %{"error" => message}}}, _config) do
+      {:error, {status, message}}
+    end
+
+    defp handle_req_response({:error, error}, _config) do
+      handle_error(error)
     end
 
     defp build_messages(prompt) do

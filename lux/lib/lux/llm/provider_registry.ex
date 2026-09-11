@@ -66,11 +66,30 @@ defmodule Lux.LLM.ProviderRegistry do
   end
 
   @doc """
+  Normalizes provider ID atoms to their canonical forms (e.g. :open_router -> :openrouter, :together_ai -> :together).
+  """
+  def normalize_provider_id(:open_router), do: :openrouter
+  def normalize_provider_id(:together_ai), do: :together
+  def normalize_provider_id(id), do: id
+
+  @doc """
   Retrieves a registered provider config by ID.
   """
   def get_provider(provider_id, opts \\ []) when is_atom(provider_id) do
     name = Keyword.get(opts, :registry_name, __MODULE__)
-    GenServer.call(name, {:get_provider, provider_id})
+    canonical_id = normalize_provider_id(provider_id)
+
+    case GenServer.whereis(name) do
+      nil ->
+        {:error, :not_found}
+
+      _pid ->
+        try do
+          GenServer.call(name, {:get_provider, canonical_id})
+        catch
+          :exit, _ -> {:error, :not_found}
+        end
+    end
   end
 
   @doc """
@@ -78,7 +97,18 @@ defmodule Lux.LLM.ProviderRegistry do
   """
   def list_providers(opts \\ []) do
     name = Keyword.get(opts, :registry_name, __MODULE__)
-    GenServer.call(name, :list_providers)
+
+    case GenServer.whereis(name) do
+      nil ->
+        []
+
+      _pid ->
+        try do
+          GenServer.call(name, :list_providers)
+        catch
+          :exit, _ -> []
+        end
+    end
   end
 
   @doc """
@@ -90,7 +120,24 @@ defmodule Lux.LLM.ProviderRegistry do
   """
   def list_models(filter_opts \\ []) do
     name = Keyword.get(filter_opts, :registry_name, __MODULE__)
-    GenServer.call(name, {:list_models, filter_opts})
+
+    normalized_opts =
+      case Keyword.get(filter_opts, :provider_id) do
+        nil -> filter_opts
+        prov_id -> Keyword.put(filter_opts, :provider_id, normalize_provider_id(prov_id))
+      end
+
+    case GenServer.whereis(name) do
+      nil ->
+        []
+
+      _pid ->
+        try do
+          GenServer.call(name, {:list_models, normalized_opts})
+        catch
+          :exit, _ -> []
+        end
+    end
   end
 
   @doc """
@@ -206,7 +253,8 @@ defmodule Lux.LLM.ProviderRegistry do
       Lux.LLM.Gemini,
       Lux.LLM.Anthropic,
       Lux.LLM.OpenRouter,
-      Lux.LLM.TogetherAI
+      Lux.LLM.TogetherAI,
+      Lux.LLM.Mira
     ]
   end
 end

@@ -257,11 +257,15 @@ defmodule Lux.LLM.Telemetry do
     fun.(prompt, tools, opts)
   end
 
+  defp execute_call(Router, prompt, tools, opts) do
+    Router.call(prompt, tools, opts)
+  end
+
   defp execute_call(module, prompt, tools, opts) when is_atom(module) do
     if Code.ensure_loaded?(module) and function_exported?(module, :call, 3) do
-      module.call(prompt, tools, opts)
+      module.call(prompt, tools, Router.build_call_opts(opts))
     else
-      Router.call(prompt, tools, opts)
+      Router.call(prompt, tools, Map.put_new(opts, :provider_id, module))
     end
   end
 

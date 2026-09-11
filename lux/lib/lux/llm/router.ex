@@ -25,8 +25,37 @@ defmodule Lux.LLM.Router do
     :provider_id,
     :primary,
     :fallbacks,
-    :fallback_on_all_errors
+    :fallback_on_all_errors,
+    :cache,
+    :ttl
   ]
+
+  @doc """
+  Selects the optimal model matching the given criteria.
+
+  ## Criteria Options
+  - `:cheapest` - Selects the model with minimum estimated token cost (default).
+  - `:smartest` - Selects the model with largest context window and capabilities.
+  - A criteria map or keyword list (e.g. `[capabilities: [:vision, :tools], provider_id: :openai]`).
+  - A custom scoring function `(ModelConfig.t() -> number())`.
+  """
+  @spec select_model(strategy() | map() | keyword(), opts()) ::
+          {:ok, {ProviderConfig.t(), ModelConfig.t()}} | {:error, term()}
+  def select_model(criteria \\ :cheapest, opts \\ []) do
+    opts_map =
+      case criteria do
+        strategy when is_atom(strategy) or is_function(strategy, 1) ->
+          opts |> to_map() |> Map.put(:strategy, strategy)
+
+        criteria_map when is_map(criteria_map) ->
+          opts |> to_map() |> Map.merge(criteria_map)
+
+        criteria_list when is_list(criteria_list) ->
+          opts |> to_map() |> Map.merge(Enum.into(criteria_list, %{}))
+      end
+
+    route("", [], opts_map)
+  end
 
   @doc """
   Routes an LLM call to the optimal provider/model combination and executes the request.
@@ -45,6 +74,14 @@ defmodule Lux.LLM.Router do
   def call(prompt, tools \\ [], opts \\ []) do
     opts_map = to_map(opts)
 
+    if Map.get(opts_map, :cache, false) do
+      Lux.LLM.Cache.cached_call(&do_call/3, prompt, tools, opts_map)
+    else
+      do_call(prompt, tools, opts_map)
+    end
+  end
+
+  defp do_call(prompt, tools, opts_map) do
     req_caps = Map.get(opts_map, :capabilities, [])
     req_caps = if tools != [] and :tools not in req_caps, do: [:tools | req_caps], else: req_caps
     opts_with_caps = Map.put(opts_map, :capabilities, req_caps)

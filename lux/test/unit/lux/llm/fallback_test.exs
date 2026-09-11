@@ -243,5 +243,71 @@ defmodule Lux.LLM.FallbackTest do
       assert {:ok, signal} = Fallback.call("hello", [], control_opts)
       assert signal.payload.model == "strict-model"
     end
+
+    test "Fallback.call with {%ProviderConfig{}, spec_opts} merges options properly" do
+      config = %Lux.LLM.ProviderConfig{
+        id: :strict_provider,
+        module: StrictProvider,
+        api_key: nil
+      }
+
+      control_opts = [
+        primary: {config, [api_key: "spec-key"]},
+        fallbacks: [],
+        fallback_on_all_errors: true
+      ]
+
+      assert {:ok, signal} = Fallback.call("hello", [], control_opts)
+      assert signal.payload.model == "strict-model"
+    end
+
+    test "Fallback.call with bare Router module preserves router control options" do
+      reg_name = :"ac3_bare_router_#{System.unique_integer([:positive])}"
+      {:ok, _pid} = Lux.LLM.ProviderRegistry.start_link(name: reg_name, providers: [StrictProvider])
+
+      control_opts = [
+        primary: Lux.LLM.Router,
+        registry_name: reg_name,
+        strategy: :cheapest,
+        provider_id: :strict_provider
+      ]
+
+      assert {:ok, signal} = Fallback.call("hello", [], control_opts)
+      assert signal.payload.model == "strict-model"
+    end
+
+    test "Fallback.call with unstarted registry safely falls back to standard provider without exit" do
+      unstarted_reg = :"unstarted_reg_#{System.unique_integer([:positive])}"
+
+      # Calling an unknown provider on an unstarted registry records error in history instead of :noproc exit
+      assert {:error, {:all_fallbacks_failed, [attempt]}} =
+               Fallback.call("hello", [], primary: :some_unknown_prov, registry_name: unstarted_reg)
+
+      assert attempt.error == {:unknown_provider, :some_unknown_prov}
+    end
+
+    test "call_with_fallback/5 helper executes primary and fails over to fallback list" do
+      primary_fail = fn _p, _t -> {:error, {503, "Unavailable"}} end
+      fallback_ok = fn _p, _t -> {:ok, make_ok_signal("fallback_ok")} end
+
+      assert {:ok, signal} = Fallback.call_with_fallback(primary_fail, "hello", [], [], [fallback_ok])
+      assert signal.payload.model == "fallback_ok"
+      assert length(signal.metadata.fallback_history) == 1
+    end
+
+    test "safe failover when primary spec raises an exception" do
+      raising_primary = fn _p, _t -> raise "unexpected network crash" end
+      fallback_ok = fn _p, _t -> {:ok, make_ok_signal("rescued_fallback")} end
+
+      assert {:ok, signal} =
+               Fallback.call("hello", [],
+                 primary: raising_primary,
+                 fallbacks: [fallback_ok],
+                 fallback_on_all_errors: true
+               )
+
+      assert signal.payload.model == "rescued_fallback"
+      assert length(signal.metadata.fallback_history) == 1
+    end
   end
 end

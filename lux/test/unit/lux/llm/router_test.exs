@@ -307,4 +307,21 @@ defmodule Lux.LLM.RouterTest do
       assert {:ok, %Signal{}} = Router.call("hello", [], control_opts)
     end
   end
+
+  describe "select_model/2" do
+    test "selects cheapest model by default", %{registry_name: reg} do
+      assert {:ok, {_prov, model}} = Router.select_model(:cheapest, registry_name: reg)
+      assert model.id == "cheap-model"
+    end
+
+    test "selects smartest model with :smartest criteria", %{registry_name: reg} do
+      assert {:ok, {_prov, model}} = Router.select_model(:smartest, registry_name: reg)
+      assert model.id == "smart-model"
+    end
+
+    test "selects model with map criteria matching capabilities", %{registry_name: reg} do
+      assert {:ok, {_prov, model}} = Router.select_model(%{capabilities: [:reasoning]}, registry_name: reg)
+      assert model.id == "smart-model"
+    end
+  end
 end

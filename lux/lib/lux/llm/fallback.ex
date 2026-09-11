@@ -41,6 +41,21 @@ defmodule Lux.LLM.Fallback do
     execute_specs(specs, prompt, tools, opts_map, [])
   end
 
+  @doc """
+  Convenience helper for executing a primary spec with an explicit fallback spec list.
+  """
+  @spec call_with_fallback(spec(), Lux.LLM.Provider.prompt(), Lux.LLM.Provider.tools(), Lux.LLM.Provider.opts(), [spec()]) ::
+          {:ok, Signal.t()} | {:error, term()}
+  def call_with_fallback(primary, prompt, tools \\ [], opts \\ [], fallbacks \\ []) do
+    opts_map =
+      opts
+      |> to_map()
+      |> Map.put(:primary, primary)
+      |> Map.put(:fallbacks, fallbacks)
+
+    call(prompt, tools, opts_map)
+  end
+
   @status_codes [408, 429, 500, 502, 503, 504, 507, 529]
   @error_atoms [
     :rate_limit,
@@ -109,7 +124,7 @@ defmodule Lux.LLM.Fallback do
   end
 
   defp execute_specs([spec | remaining], prompt, tools, opts, history) do
-    case invoke_spec(spec, prompt, tools, opts) do
+    case safe_invoke_spec(spec, prompt, tools, opts) do
       {:ok, %Signal{} = signal} ->
         metadata = Map.get(signal, :metadata) || %{}
         updated_metadata = Map.put(metadata, :fallback_history, Enum.reverse(history))
@@ -138,6 +153,17 @@ defmodule Lux.LLM.Fallback do
     end
   end
 
+  defp safe_invoke_spec(spec, prompt, tools, opts) do
+    try do
+      invoke_spec(spec, prompt, tools, opts)
+    rescue
+      e -> {:error, e}
+    catch
+      :exit, reason -> {:error, {:exit, reason}}
+      kind, reason -> {:error, {kind, reason}}
+    end
+  end
+
   defp invoke_spec(fun, prompt, tools, _opts) when is_function(fun, 2) do
     fun.(prompt, tools)
   end
@@ -146,19 +172,39 @@ defmodule Lux.LLM.Fallback do
     fun.(prompt, tools, opts)
   end
 
+  defp invoke_spec(Router, prompt, tools, global_opts) do
+    Router.call(prompt, tools, global_opts)
+  end
+
   defp invoke_spec({Router, spec_opts}, prompt, tools, global_opts) do
     merged = Map.merge(to_map(global_opts), to_map(spec_opts))
     Router.call(prompt, tools, merged)
   end
 
+  defp invoke_spec({%ProviderConfig{} = config, spec_opts}, prompt, tools, global_opts) do
+    merged = Map.merge(to_map(global_opts), to_map(spec_opts))
+    call_opts = Router.build_call_opts(merged, config)
+    config.module.call(prompt, tools, call_opts)
+  end
+
   defp invoke_spec({module, spec_opts}, prompt, tools, global_opts) when is_atom(module) do
     merged = Map.merge(to_map(global_opts), to_map(spec_opts))
 
-    if Code.ensure_loaded?(module) and function_exported?(module, :call, 3) do
-      module.call(prompt, tools, Router.build_call_opts(merged))
-    else
-      resolve_and_call_provider(module, prompt, tools, merged)
+    cond do
+      module == Router ->
+        Router.call(prompt, tools, merged)
+
+      Code.ensure_loaded?(module) and function_exported?(module, :call, 3) ->
+        module.call(prompt, tools, Router.build_call_opts(merged))
+
+      true ->
+        resolve_and_call_provider(module, prompt, tools, merged)
     end
+  end
+
+  defp invoke_spec(%ProviderConfig{} = config, prompt, tools, global_opts) do
+    call_opts = Router.build_call_opts(global_opts, config)
+    config.module.call(prompt, tools, call_opts)
   end
 
   defp invoke_spec(module, prompt, tools, global_opts) when is_atom(module) do
@@ -169,39 +215,58 @@ defmodule Lux.LLM.Fallback do
     end
   end
 
-  defp invoke_spec(%ProviderConfig{} = config, prompt, tools, global_opts) do
-    call_opts = Router.build_call_opts(global_opts, config)
-    config.module.call(prompt, tools, call_opts)
+  defp resolve_and_call_provider(:router, prompt, tools, opts) do
+    Router.call(prompt, tools, opts)
   end
 
   defp resolve_and_call_provider(provider_id, prompt, tools, opts) when is_atom(provider_id) do
     reg = Map.get(opts, :registry_name, ProviderRegistry)
 
-    case ProviderRegistry.get_provider(provider_id, registry_name: reg) do
+    case lookup_provider(provider_id, reg) do
       {:ok, %ProviderConfig{} = config} ->
         call_opts = Router.build_call_opts(opts, config)
         config.module.call(prompt, tools, call_opts)
 
       {:error, _} ->
-        # Try fallback mapping for standard atom provider IDs
-        module =
-          case provider_id do
-            :openai -> Lux.LLM.OpenAI
-            :gemini -> Lux.LLM.Gemini
-            :anthropic -> Lux.LLM.Anthropic
-            :open_router -> Lux.LLM.OpenRouter
-            :together_ai -> Lux.LLM.TogetherAI
-            mod -> mod
-          end
+        call_standard_provider(provider_id, prompt, tools, opts)
+    end
+  end
 
-        if function_exported?(module, :call, 3) do
-          module.call(prompt, tools, Router.build_call_opts(opts))
-        else
-          {:error, {:unknown_provider, provider_id}}
+  defp lookup_provider(provider_id, reg) do
+    case GenServer.whereis(reg) do
+      nil ->
+        {:error, :registry_not_running}
+
+      _pid ->
+        try do
+          ProviderRegistry.get_provider(provider_id, registry_name: reg)
+        catch
+          :exit, _ -> {:error, :registry_not_running}
         end
     end
   end
 
+  defp call_standard_provider(provider_id, prompt, tools, opts) do
+    module = standard_provider_module(provider_id)
+
+    if Code.ensure_loaded?(module) and function_exported?(module, :call, 3) do
+      module.call(prompt, tools, Router.build_call_opts(opts))
+    else
+      {:error, {:unknown_provider, provider_id}}
+    end
+  end
+
+  defp standard_provider_module(:openai), do: Lux.LLM.OpenAI
+  defp standard_provider_module(:gemini), do: Lux.LLM.Gemini
+  defp standard_provider_module(:anthropic), do: Lux.LLM.Anthropic
+  defp standard_provider_module(:open_router), do: Lux.LLM.OpenRouter
+  defp standard_provider_module(:openrouter), do: Lux.LLM.OpenRouter
+  defp standard_provider_module(:together_ai), do: Lux.LLM.TogetherAI
+  defp standard_provider_module(:together), do: Lux.LLM.TogetherAI
+  defp standard_provider_module(:mira), do: Lux.LLM.Mira
+  defp standard_provider_module(mod), do: mod
+
+  defp format_spec(%ProviderConfig{id: id}), do: "ProviderConfig(#{inspect(id)})"
   defp format_spec({mod, opts}) when is_atom(mod), do: "#{inspect(mod)}(#{inspect(opts)})"
   defp format_spec(mod) when is_atom(mod), do: inspect(mod)
   defp format_spec(fun) when is_function(fun), do: inspect(fun)
